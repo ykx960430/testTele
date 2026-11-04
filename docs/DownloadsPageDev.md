@@ -1309,12 +1309,162 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 
 ---
 
-## 十、待办 & 下一步
+## 十、开发阶段划分
 
-- [ ] 用户审阅并确认全文
-- [ ] 如有分歧：修改设计
+### 阶段总体视图
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Phase 1: 核心下载续传（可独立测试）                                          │
+│                                                                              │
+│  目标：下载任务持久化 + 断点续传 + 退出不丢失                                  │
+│  产出：可独立验证的核心能力，无 UI 变化                                       │
+│  测试：下载中退出 → 重启后能续传                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Phase 2: UI + 交互优化                                                       │
+│                                                                              │
+│  目标：BigPage + 侧边栏入口 + 统计/过滤/操作菜单                              │
+│  产出：完整用户体验闭环                                                      │
+│  测试：所有 UI 交互走通                                                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Phase 1：核心下载续传
+
+#### 1.1 阶段目标
+
+**可独立验证的能力闭环：**
+
+```
+下载中 ──→ 退出 APP ──→ 重启 APP ──→ 任务恢复（断点续传）──→ 完成
+```
+
+不涉及任何 UI 改动，纯底层重构 + 单元测试。
+
+#### 1.2 阶段交付标准
+
+| 验证项 | 通过条件 |
+|--------|---------|
+| 下载中断后可续传 | 下载进度 ≥ 30% 时关闭 APP，重启后任务仍在列表（灰显/待续传状态），点击继续能从断点恢复 |
+| 手动暂停/继续有效 | 正在下载的项目可暂停（释放网络，保留文件），可继续（从断点续传） |
+| 序列化/反序列化正确 | 暂停任务重启后数据完整（ready 值、path、itemId 一致） |
+| 不破坏现有功能 | 普通下载流程（不下退出）不受影响 |
+| 无内存/资源泄露 | pause 后 Loader 正确销毁，文件句柄释放 |
+| 单测 / Debug 构建通过 | CMake 构建成功、运行无崩溃 |
+
+#### 1.3 Phase 1 任务清单
+
+| # | 任务 | 涉及文件 | 关键产出 |
+|---|------|---------|---------|
+| T1.1 | `PausedDownloadDescriptor` 结构体定义 | `data_download_manager.h` | 核心数据结构 |
+| T1.2 | `PauseReason` 枚举 | `data_download_manager.h` | 暂停原因分类 |
+| T1.3 | `FileLoader::pause()` + `setStartOffset()`，不再 `remove()` 文件 | `file_download.h/.cpp` | 文件保留 + offset 追踪 |
+| T1.4 | `mtpFileLoader::setStartOffset()` 适配（`_nextRequestOffset` 初始化） | `file_download_mtproto.h/.cpp` | MTProto 侧续传起点 |
+| T1.5 | `FileLoader` 部分文件后缀：`.temp` 标识（完成前 `.temp`，完成后 rename） | `file_download.cpp` | 临时文件命名规范 |
+| T1.6 | `DocumentData::pauseLoad()` —— 调用 `_loader->pause()`，不清空 loader，标记 Paused 状态 | `data_document.h/.cpp` | 文档层暂停入口 |
+| T1.7 | `DocumentData::resumeLoad()` —— 从 offset 恢复，或重建 loader | `data_document.h/.cpp` | 文档层恢复入口 |
+| T1.8 | `DownloadManager::pauseAll(session)` 实现 —— 遍历 downloading，构建 Descriptor | `data_download_manager.cpp` | 批量暂停入口 |
+| T1.9 | `DownloadManager::resumeOne(descriptor)` 实现 —— 校验文件 → 重建 DocumentData → 以 offset 调用 resumeLoad | `data_download_manager.cpp` | 单点恢复入口 |
+| T1.10 | `DownloadManager::loadingStopSilent()` 实现 —— `pauseAll` + 阻止弹出确认框 + fire `loadingListChanges` | `data_download_manager.cpp` | 静默停止入口 |
+| T1.11 | `_pausedSerialized` StorageKey 注册 | `storage/storage_account.h` | 持久化 key |
+| T1.12 | PausedDownload 序列化/反序列化（QDataStream 格式）：writePaused + deserializePaused | `data_download_manager.cpp` + `storage_account.cpp` | 持久化实现 |
+| T1.13 | `Application::downloadPreventsQuit()` 改造 —— 不再阻塞退出，静默 pauseAll | `core/application.cpp` | 退出流程变化 |
+| T1.14 | 反序列化后自动执行「恢复前检查」：验证文件 size vs descriptor.ready，分类 Ready/Corrupted/FileMissing | `data_download_manager.cpp` 构造函数 | 状态自检 |
+| T1.15 | `pausedListChanges` 信号 + `pausedCount()` 计数 | `data_download_manager.h/.cpp` | UI 通知接口 |
+
+#### 1.4 不在 Phase 1 范围内（留至 Phase 2）
+
+- ❌ 新 BigPage UI
+- ❌ 侧边栏入口按钮（可使用已有的 Settings → Advanced → Download 入口）
+- ❌ DownloadingItemWidget / DownloadedItemWidget
+- ❌ 统计卡片 / 类型 Tab
+- ❌ 暂停列表 UI 展示（Phase 1 仅保证文件不断裂，数据可恢复）
+- ❌ 角标
+
+#### 1.5 测试方案
+
+**手动测试（Debug Build）：**
+
+1. 启动 APP，下载一个 ≥ 50MB 文件（进度 ≥ 30%）
+2. 关闭 APP（正常退出流程，触发 `loadingStopSilent`）
+3. 重启 APP，打开现有下载页面（Settings → Advanced → Download），验证：
+   - 存在"已暂停」任务项（或等待 UI 实现后再验证）
+4. 删除 `/out/Debug/TelegramForcePortable` 中的对应 `.temp` 文件
+5. 重启 APP，验证：
+   - 任务标记为"文件损坏/缺失"（未来 UI 设计的基础）
+
+---
+
+### Phase 2：交互优化（UI + UX）
+
+#### 2.1 阶段目标
+
+在 Phase 1 基础上叠加完整 UI/UX：
+
+- 侧边栏直达入口 + 角标
+- 全新 BigPage 页面
+- 正在下载 / 已完成 分组
+- 文件名显示
+- 在文件夹打开
+- 顶部菜单：全部暂停/继续（无高危按钮）
+
+#### 2.2 Phase 2 任务清单
+
+| # | 任务 | 涉及文件 | 关键产出 |
+|---|------|---------|---------|
+| T2.1 | 下载按钮 + 角标（SideBarButton 风格） | `window_filters_menu.h/.cpp` | 侧边栏入口 |
+| T2.2 | 统计聚合器 StatsAggregator | `info/downloads/stats_aggregator.h/.cpp` | 分类统计 |
+| T2.3 | 统计卡片 UI | BigPageWidget 内嵌 | 信息聚合展示 |
+| T2.4 | 类型过滤 Tab | BigPageWidget | 筛选交互 |
+| T2.5 | DownloadingProvider | `info/downloads/downloading_provider.h/.cpp` | 正在下载数据层 |
+| T2.6 | DownloadedProvider | `info/downloads/downloaded_provider.h/.cpp` | 已完成数据层 |
+| T2.7 | DownloadingItemWidget | `ui/widgets/downloading_item_widget.h/.cpp` | 下载中项 UI |
+| T2.8 | DownloadedItemWidget | `ui/widgets/downloaded_item_widget.h/.cpp` | 已完成项 UI |
+| T2.9 | 长按菜单 | 两个 Item Widget 内 | 操作菜单 |
+| T2.10 | Section::DownloadsBig 注册 + Widget/InnerWidget 框架 | `info_controller.h` + 新文件 | Info 体系导航 |
+| T2.11 | WrapWidget 齿轮按钮路由 | `info_wrap_widget.cpp` | 跳转高级设置 |
+| T2.12 | 顶部菜单替换（删除"删除所有文件"，改为"全部暂停/继续"） | `info_downloads_widget.cpp` | 菜单安全化 |
+| T2.13 | 图标资源（downloads.svg 等） | `Resources/gui/icons/` | 视觉资源 |
+| T2.14 | 风格文件 | `info/downloads/info_downloads_big_page.style` | UI 风格定义 |
+| T2.15 | 本地化字符串 | `Resources/langs/lang.strings` | 多语言文案 |
+
+#### 2.3 不在 Phase 2 范围内（未来可能考虑）
+
+- ❌ 第三方下载（非 MTProto 来源）
+- ❌ 下载限速
+- ❌ 自动重试网络错误
+- ❌ 托盘通知（下载完成等）
+
+---
+
+## 十一、待办 & 下一步
+
+- [x] 用户审阅并确认全文
+- [x] 如有分歧：修改设计
+- [ ] **下一会话启动 Phase 1 开发**
 - [ ] 生成可独立编译的开发任务单
-- [ ] 在新会话启动编码
+- [ ] Phase 1 完成后立即进入用户测试环节
+- [x] 在新会话启动编码（已就位）
+
+---
+
+## 十二、下一会话开场白（预写）
+
+```
+你好，我是 CatPaw（妙手），继续 AyuGramDesktop 下载系统重构项目。
+
+前一会话已完成：
+- 项目代码调研（DownloadManager / FileLoader / DocumentData / Application / FiltersMenu / InfoSection）
+- 开发文档编写（docs/DownloadsPageDev.md）
+- 文档已分 Phase 1（核心下载续传）和 Phase 2（交互优化）两个阶段
+- Git 初始提交 + 锚点 tag v0.0.1-before-download-refactor 已落盘
+
+目标会话：按照 Phase 1 任务清单逐步编码。
+首任务：T1.1 PausedDownloadDescriptor 结构体 + PauseReason 枚举 → data_download_manager.h
+完成后编译验证 → T1.2 → ... → T1.15，完成一轮后交付 Debug build 测试。
+```
 
 ---
 

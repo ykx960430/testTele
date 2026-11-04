@@ -1390,6 +1390,33 @@ void DocumentData::resetCancelled() {
 	_flags &= ~Flag::DownloadCancelled;
 }
 
+bool DocumentData::paused() const {
+	return (_flags & Flag::DownloadPaused);
+}
+
+void DocumentData::pauseLoad(int64 *outReadyBytes) {
+	if (!loading()) return;
+	if (_loader) {
+		_loader->pause();
+		if (outReadyBytes) {
+			*outReadyBytes = _loader->currentOffset();
+		}
+	}
+	_flags |= Flag::DownloadPaused;
+	_owner->documentLoadDone(this);
+}
+
+void DocumentData::resumeLoad(int64 offset) {
+	_flags &= ~(Flag::DownloadCancelled | Flag::DownloadPaused);
+	if (_loader && _loader->paused()) {
+		_loader->setStartOffset(offset);
+		_loader->resume();
+	} else {
+		_loader = nullptr;
+	}
+	_owner->documentLoadDone(this);
+}
+
 VoiceWaveform documentWaveformDecode(const QByteArray &encoded5bit) {
 	auto bitsCount = static_cast<int>(encoded5bit.size() * 8);
 	auto valuesCount = bitsCount / 5;

@@ -25,7 +25,8 @@ public:
 		LoadToCacheSetting toCache,
 		LoadFromCloudSetting fromCloud,
 		bool autoLoading,
-		uint8 cacheTag);
+		uint8 cacheTag,
+		int64 startOffset = 0);
 	mtpFileLoader(
 		not_null<Main::Session*> session,
 		const WebFileLocation &location,
@@ -33,7 +34,8 @@ public:
 		int64 fullSize,
 		LoadFromCloudSetting fromCloud,
 		bool autoLoading,
-		uint8 cacheTag);
+		uint8 cacheTag,
+		int64 startOffset = 0);
 	mtpFileLoader(
 		not_null<Main::Session*> session,
 		const GeoPointLocation &location,
@@ -41,7 +43,8 @@ public:
 		int64 fullSize,
 		LoadFromCloudSetting fromCloud,
 		bool autoLoading,
-		uint8 cacheTag);
+		uint8 cacheTag,
+		int64 startOffset = 0);
 	mtpFileLoader(
 		not_null<Main::Session*> session,
 		const AudioAlbumThumbLocation &location,
@@ -49,7 +52,8 @@ public:
 		int64 fullSize,
 		LoadFromCloudSetting fromCloud,
 		bool autoLoading,
-		uint8 cacheTag);
+		uint8 cacheTag,
+		int64 startOffset = 0);
 	~mtpFileLoader();
 
 	Data::FileOrigin fileOrigin() const override;
@@ -70,5 +74,6 @@ private:
 
 	bool _lastComplete = false;
 	int64 _nextRequestOffset = 0;
+	int64 _startOffset = 0;
 
 };

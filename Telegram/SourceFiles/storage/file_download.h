@@ -72,7 +72,8 @@ public:
 		LoadToCacheSetting toCache,
 		LoadFromCloudSetting fromCloud,
 		bool autoLoading,
-		uint8 cacheTag);
+		uint8 cacheTag,
+		int64 startOffset = 0);
 	virtual ~FileLoader();
 
 	[[nodiscard]] Main::Session &session() const;
@@ -111,6 +112,13 @@ public:
 
 	void start();
 	void cancel();
+
+	[[nodiscard]] bool paused() const {
+		return _paused;
+	}
+	void pause();
+	void resume();
+	void setStartOffset(int64 offset);
 
 	[[nodiscard]] bool loadingLocal() const {
 		return (_localStatus == LocalStatus::Loading);
@@ -167,9 +175,11 @@ protected:
 	uint8 _cacheTag = 0;
 	bool _finished = false;
 	bool _cancelled = false;
+	bool _paused = false;
 	mutable LocalStatus _localStatus = LocalStatus::NotTried;
 
 	QString _filename;
+	QString _tempFilename;
 	QFile _file;
 	bool _fileIsOpen = false;
 
@@ -178,6 +188,8 @@ protected:
 
 	QByteArray _data;
 
+	int64 _startOffset = 0;
+	int64 _pausedBytes = 0;
 	int64 _loadSize = 0;
 	int64 _fullSize = 0;
 	int64 _skippedBytes = 0;

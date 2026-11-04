@@ -76,6 +76,30 @@ struct DownloadingId {
 	bool done = false;
 };
 
+enum class PauseReason : uchar {
+	User,
+	Auto,
+	Network,
+};
+
+struct PausedDownloadDescriptor {
+	uint64 documentId = 0;
+	uint64 photoId = 0;
+	int64 itemIdPeer = 0;
+	int64 itemIdMsg = 0;
+	uint64 peerAccessHash = 0;
+	DownloadType downloadType = DownloadType::Document;
+
+	int64 ready = 0;
+	int64 total = 0;
+	QString path;
+
+	QString displayName;
+	QString sourceTitle;
+	int64 started = 0;
+	PauseReason reason = PauseReason::Auto;
+};
+
 class DownloadManager final {
 public:
 	DownloadManager();
@@ -136,6 +160,20 @@ public:
 	void loadingStopWithConfirmation(
 		Fn<void()> callback,
 		Main::Session *onlyInSession = nullptr);
+	void loadingStopSilent(Main::Session *onlyInSession = nullptr);
+
+	void pauseAll(Main::Session *onlyInSession = nullptr);
+	void pauseOne(not_null<const HistoryItem*> item);
+	bool resumeOne(const PausedDownloadDescriptor &descriptor);
+	void cancelPaused(not_null<const PausedDownloadDescriptor*> descriptor);
+
+	[[nodiscard]] int loadingCount(
+		Main::Session *onlyInSession = nullptr) const;
+	[[nodiscard]] int pausedCount() const;
+	[[nodiscard]] auto pausedList() const
+		-> ranges::any_view<const PausedDownloadDescriptor*,
+			ranges::category::input>;
+	[[nodiscard]] rpl::producer<> pausedListChanges() const;
 
 	[[nodiscard]] auto loadedList()
 		-> ranges::any_view<const DownloadedId*, ranges::category::input>;
@@ -209,6 +247,10 @@ private:
 	[[nodiscard]] std::vector<DownloadedId> deserialize(
 		not_null<Main::Session*> session) const;
 
+	[[nodiscard]] QByteArray serializePaused() const;
+	void deserializePaused(const QByteArray &data);
+	void validatePausedDownloads();
+
 	base::flat_map<not_null<Main::Session*>, SessionData> _sessions;
 	base::flat_set<not_null<const HistoryItem*>> _loading;
 	base::flat_set<not_null<DocumentData*>> _loadingDocuments;
@@ -216,6 +258,8 @@ private:
 	base::flat_set<not_null<const HistoryItem*>> _loaded;
 	base::flat_set<not_null<HistoryItem*>> _generated;
 	base::flat_set<not_null<DocumentData*>> _generatedDocuments;
+
+	std::vector<PausedDownloadDescriptor> _paused;
 
 	TimeId _lastStartedBase = 0;
 	int _lastStartedAdded = 0;
@@ -226,6 +270,8 @@ private:
 	rpl::event_stream<not_null<const DownloadedId*>> _loadedAdded;
 	rpl::event_stream<not_null<const HistoryItem*>> _loadedRemoved;
 	rpl::variable<bool> _loadedResolveDone;
+
+	rpl::event_stream<> _pausedListChanges;
 
 	base::Timer _clearLoadingTimer;
 

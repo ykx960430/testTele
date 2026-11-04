@@ -857,7 +857,14 @@ void Account::writeLocations() {
 			_downloadsSerialized = std::move(*serialized);
 		}
 	}
-	if (_fileLocations.isEmpty() && _downloadsSerialized.isEmpty()) {
+	if (_pausedDownloadsSerialize) {
+		if (auto serialized = _pausedDownloadsSerialize()) {
+			_pausedDownloadsSerialized = std::move(*serialized);
+		}
+	}
+	if (_fileLocations.isEmpty()
+		&& _downloadsSerialized.isEmpty()
+		&& _pausedDownloadsSerialized.isEmpty()) {
 		if (_locationsKey) {
 			ClearKey(_locationsKey, _basePath);
 			_locationsKey = 0;
@@ -918,6 +925,11 @@ void Account::writeLocations() {
 		}
 
 		data.stream << quint32(0) << _downloadsSerialized;
+		if (_pausedDownloadsSerialized.isEmpty()) {
+			data.stream << QByteArray();
+		} else {
+			data.stream << _pausedDownloadsSerialized;
+		}
 
 		FileWriteDescriptor file(_locationsKey, _basePath);
 		file.writeEncrypted(data, _localKey);
@@ -995,10 +1007,12 @@ void Account::readLocations() {
 
 			if (!locations.stream.atEnd()) {
 				locations.stream >> _downloadsSerialized;
+				if (!locations.stream.atEnd()) {
+					locations.stream >> _pausedDownloadsSerialized;
+				}
 			}
 		}
 	}
-}
 
 void Account::updateDownloads(
 		Fn<std::optional<QByteArray>()> downloadsSerialize) {
@@ -1008,6 +1022,16 @@ void Account::updateDownloads(
 
 QByteArray Account::downloadsSerialized() const {
 	return _downloadsSerialized;
+}
+
+void Account::updatePausedDownloads(
+		Fn<std::optional<QByteArray>()> pausedDownloadsSerialize) {
+	_pausedDownloadsSerialize = std::move(pausedDownloadsSerialize);
+	writeLocationsDelayed();
+}
+
+QByteArray Account::pausedDownloadsSerialized() const {
+	return _pausedDownloadsSerialized;
 }
 
 void Account::writeSessionSettings() {

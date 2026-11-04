@@ -27,7 +27,8 @@ mtpFileLoader::mtpFileLoader(
 	LoadToCacheSetting toCache,
 	LoadFromCloudSetting fromCloud,
 	bool autoLoading,
-	uint8 cacheTag)
+	uint8 cacheTag,
+	int64 startOffset)
 : FileLoader(
 	session,
 	to,
@@ -37,8 +38,11 @@ mtpFileLoader::mtpFileLoader(
 	toCache,
 	fromCloud,
 	autoLoading,
-	cacheTag)
-, DownloadMtprotoTask(&session->downloader(), location, origin) {
+	cacheTag,
+	startOffset)
+, DownloadMtprotoTask(&session->downloader(), location, origin)
+, _nextRequestOffset(startOffset)
+, _startOffset(startOffset) {
 }
 
 mtpFileLoader::mtpFileLoader(
@@ -48,7 +52,8 @@ mtpFileLoader::mtpFileLoader(
 	int64 fullSize,
 	LoadFromCloudSetting fromCloud,
 	bool autoLoading,
-	uint8 cacheTag)
+	uint8 cacheTag,
+	int64 startOffset)
 : FileLoader(
 	session,
 	QString(),
@@ -58,11 +63,14 @@ mtpFileLoader::mtpFileLoader(
 	LoadToCacheAsWell,
 	fromCloud,
 	autoLoading,
-	cacheTag)
+	cacheTag,
+	startOffset)
 , DownloadMtprotoTask(
 	&session->downloader(),
 	session->serverConfig().webFileDcId,
-	{ location }) {
+	{ location })
+, _nextRequestOffset(startOffset)
+, _startOffset(startOffset) {
 }
 
 mtpFileLoader::mtpFileLoader(
@@ -72,7 +80,8 @@ mtpFileLoader::mtpFileLoader(
 	int64 fullSize,
 	LoadFromCloudSetting fromCloud,
 	bool autoLoading,
-	uint8 cacheTag)
+	uint8 cacheTag,
+	int64 startOffset)
 : FileLoader(
 	session,
 	QString(),
@@ -82,11 +91,14 @@ mtpFileLoader::mtpFileLoader(
 	LoadToCacheAsWell,
 	fromCloud,
 	autoLoading,
-	cacheTag)
+	cacheTag,
+	startOffset)
 , DownloadMtprotoTask(
 	&session->downloader(),
 	session->serverConfig().webFileDcId,
-	{ location }) {
+	{ location })
+, _nextRequestOffset(startOffset)
+, _startOffset(startOffset) {
 }
 
 mtpFileLoader::mtpFileLoader(
@@ -96,7 +108,8 @@ mtpFileLoader::mtpFileLoader(
 	int64 fullSize,
 	LoadFromCloudSetting fromCloud,
 	bool autoLoading,
-	uint8 cacheTag)
+	uint8 cacheTag,
+	int64 startOffset)
 : FileLoader(
 	session,
 	QString(),
@@ -106,11 +119,14 @@ mtpFileLoader::mtpFileLoader(
 	LoadToCacheAsWell,
 	fromCloud,
 	autoLoading,
-	cacheTag)
+	cacheTag,
+	startOffset)
 , DownloadMtprotoTask(
 	&session->downloader(),
 	session->serverConfig().webFileDcId,
-	{ location }) {
+	{ location })
+, _nextRequestOffset(startOffset)
+, _startOffset(startOffset) {
 }
 
 mtpFileLoader::~mtpFileLoader() {

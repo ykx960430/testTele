@@ -111,19 +111,23 @@ FileLoader::FileLoader(
 	LoadToCacheSetting toCache,
 	LoadFromCloudSetting fromCloud,
 	bool autoLoading,
-	uint8 cacheTag)
+	uint8 cacheTag,
+	int64 startOffset)
 : _session(session)
 , _autoLoading(autoLoading)
 , _cacheTag(cacheTag)
 , _filename(toFile)
-, _file(_filename)
+, _tempFilename(_filename + u".temp"_q)
+, _file(_tempFilename)
 , _toCache(toCache)
 , _fromCloud(fromCloud)
+, _startOffset(startOffset)
 , _loadSize(loadSize)
 , _fullSize(fullSize)
 , _locationType(locationType) {
 	Expects(_loadSize <= _fullSize);
 	Expects(!_filename.isEmpty() || (_fullSize <= Storage::kMaxFileInMemory));
+	Expects(_startOffset >= 0);
 }
 
 FileLoader::~FileLoader() {
@@ -266,9 +270,24 @@ bool FileLoader::checkForOpen() {
 		|| _fileIsOpen) {
 		return true;
 	}
-	_fileIsOpen = _file.open(QIODevice::WriteOnly);
+	if (_startOffset > 0) {
+		_fileIsOpen = _file.open(QIODevice::WriteOnly | QIODevice::Append);
+		if (_fileIsOpen && _file.size() < _startOffset) {
+			_startOffset = _file.size();
+			_file.seek(_startOffset);
+		}
+	} else {
+		_fileIsOpen = _file.open(QIODevice::WriteOnly);
+	}
 	if (_fileIsOpen) {
 		return true;
+	}
+	if (_tempFilename != _filename) {
+		_file.setFileName(_filename);
+		_fileIsOpen = _file.open(QIODevice::WriteOnly);
+		if (_fileIsOpen) {
+			return true;
+		}
 	}
 	cancel(FailureReason::FileWriteFailure);
 	return false;
@@ -340,6 +359,33 @@ bool FileLoader::tryLoadLocal() {
 	return false;
 }
 
+void FileLoader::pause() {
+	if (_cancelled || _finished || _paused) return;
+
+	_finished = true;
+	_paused = true;
+	_pausedBytes = currentOffset();
+
+	cancelHook();
+
+	if (_fileIsOpen) {
+		_file.flush();
+		_file.close();
+		_fileIsOpen = false;
+	}
+}
+
+void FileLoader::resume() {
+	if (!_paused) return;
+	_paused = false;
+	_cancelled = false;
+	_finished = false;
+}
+
+void FileLoader::setStartOffset(int64 offset) {
+	_startOffset = offset;
+}
+
 void FileLoader::cancel() {
 	cancel(FailureReason::NoFailure);
 }
@@ -355,6 +401,9 @@ void FileLoader::cancel(FailureReason fail) {
 		_file.close();
 		_fileIsOpen = false;
 		_file.remove();
+	}
+	if (!_tempFilename.isEmpty() && _tempFilename != _filename) {
+		QFile::remove(_tempFilename);
 	}
 	_data = QByteArray();
 
@@ -455,8 +504,11 @@ bool FileLoader::finalizeResult() {
 	if (_fileIsOpen) {
 		_file.close();
 		_fileIsOpen = false;
+		if (_tempFilename != _filename) {
+			QFile::rename(_tempFilename, _filename);
+		}
 		Platform::File::PostprocessDownloaded(
-			QFileInfo(_file).absoluteFilePath());
+			QFileInfo(_filename).absoluteFilePath());
 	}
 	if (_localStatus == LocalStatus::NotFound) {
 		if (const auto key = fileLocationKey()) {

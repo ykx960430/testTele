@@ -1169,8 +1169,7 @@ bool Application::uploadPreventsQuit() {
 
 bool Application::downloadPreventsQuit() {
 	if (_downloadManager->loadingInProgress()) {
-		_downloadManager->loadingStopWithConfirmation([=] { Quit(); });
-		return true;
+		_downloadManager->loadingStopSilent();
 	}
 	return false;
 }

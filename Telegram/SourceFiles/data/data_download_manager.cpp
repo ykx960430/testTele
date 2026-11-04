@@ -173,6 +173,9 @@ void DownloadManager::trackSession(not_null<Main::Session*> session) {
 	auto &data = _sessions.emplace(session, SessionData()).first->second;
 	data.downloaded = deserialize(session);
 	data.resolveNeeded = data.downloaded.size();
+	deserializePaused(
+		session->account().local().pausedDownloadsSerialized());
+	ValidatePausedDownloads();
 
 	session->data().documentLoadProgress(
 	) | rpl::filter([=](not_null<DocumentData*> document) {
@@ -784,6 +787,144 @@ void DownloadManager::loadingStop(Main::Session *onlyInSession) {
 	}
 }
 
+void DownloadManager::loadingStopSilent(Main::Session *onlyInSession) {
+	pauseAll(onlyInSession);
+}
+
+void DownloadManager::pauseAll(Main::Session *onlyInSession) {
+	const auto pauseInSession = [&](SessionData &data) {
+		while (!data.downloading.empty()) {
+			auto i = data.downloading.end() - 1;
+			const auto object = i->object;
+			const auto item = object.item;
+			if (!item->isAdminLogEntry()) {
+				auto descriptor = PausedDownloadDescriptor();
+				descriptor.path = i->path;
+				descriptor.total = i->total;
+				descriptor.started = i->started;
+				if (const auto document = object.document) {
+					document->pauseLoad(&descriptor.ready);
+					descriptor.documentId = document->id;
+					descriptor.downloadType = DownloadType::Document;
+				} else if (const auto photo = object.photo) {
+					descriptor.photoId = photo->id;
+					descriptor.downloadType = DownloadType::Photo;
+				}
+				descriptor.itemIdPeer = item->history()->peer->id.value;
+				descriptor.itemIdMsg = item->id.bare;
+				descriptor.peerAccessHash = PeerAccessHash(item->history()->peer);
+				descriptor.reason = PauseReason::Auto;
+				_paused.push_back(std::move(descriptor));
+			}
+			remove(data, i);
+		}
+	};
+	if (onlyInSession) {
+		const auto j = _sessions.find(onlyInSession);
+		if (j != end(_sessions)) {
+			pauseInSession(j->second);
+		}
+	} else {
+		for (auto &[session, data] : _sessions) {
+			pauseInSession(data);
+		}
+	}
+	if (!_paused.empty()) {
+		_pausedListChanges.fire({});
+	}
+	writePostponed(nullptr);
+}
+
+void DownloadManager::pauseOne(not_null<const HistoryItem*> item) {
+	auto &data = sessionData(item);
+	const auto it = ranges::find_if(data.downloading, [&](const auto &d) {
+		return (d.object.item == item);
+	});
+	if (it == data.downloading.end()) return;
+
+	auto descriptor = PausedDownloadDescriptor();
+	descriptor.path = it->path;
+	descriptor.total = it->total;
+	descriptor.started = it->started;
+	if (const auto document = it->object.document) {
+		document->pauseLoad(&descriptor.ready);
+		descriptor.documentId = document->id;
+		descriptor.downloadType = DownloadType::Document;
+	} else if (const auto photo = it->object.photo) {
+		descriptor.photoId = photo->id;
+		descriptor.downloadType = DownloadType::Photo;
+	}
+	descriptor.itemIdPeer = item->history()->peer->id.value;
+	descriptor.itemIdMsg = item->id.bare;
+	descriptor.peerAccessHash = PeerAccessHash(item->history()->peer);
+	descriptor.reason = PauseReason::User;
+	_paused.push_back(std::move(descriptor));
+
+	const auto i = (it - data.downloading.begin());
+	remove(data, data.downloading.begin() + i);
+	_pausedListChanges.fire({});
+	writePostponed(nullptr);
+}
+
+bool DownloadManager::resumeOne(const PausedDownloadDescriptor &descriptor) {
+	for (auto i = _paused.begin(); i != _paused.end(); ++i) {
+		if (i->documentId == descriptor.documentId
+			&& i->photoId == descriptor.photoId
+			&& i->itemIdMsg == descriptor.itemIdMsg) {
+			_paused.erase(i);
+			_pausedListChanges.fire({});
+			writePostponed(nullptr);
+			return true;
+		}
+	}
+	return false;
+}
+
+void DownloadManager::cancelPaused(
+		not_null<const PausedDownloadDescriptor*> descriptor) {
+	const auto i = ranges::find_if(_paused, [&](const auto &d) {
+		return (&d == descriptor);
+	});
+	if (i != _paused.end()) {
+		_paused.erase(i);
+		_pausedListChanges.fire({});
+		writePostponed(nullptr);
+	}
+}
+
+int DownloadManager::loadingCount(Main::Session *onlyInSession) const {
+	int result = 0;
+	if (onlyInSession) {
+		const auto i = _sessions.find(onlyInSession);
+		if (i != end(_sessions)) {
+			result += i->second.downloading.size();
+		}
+	} else {
+		for (const auto &[session, data] : _sessions) {
+			result += data.downloading.size();
+		}
+	}
+	return result;
+}
+
+int DownloadManager::pausedCount() const {
+	return _paused.size();
+}
+
+auto DownloadManager::pausedList() const
+-> ranges::any_view<const PausedDownloadDescriptor*,
+		ranges::category::input> {
+	return ranges::views::all(
+		_paused
+	) | ranges::views::transform([](const PausedDownloadDescriptor &d) {
+		return &d;
+	});
+}
+
+rpl::producer<> DownloadManager::pausedListChanges() const {
+	return _pausedListChanges.events();
+}
+
 void DownloadManager::clearLoading() {
 	Expects(_loading.empty());
 
@@ -1163,6 +1304,15 @@ DownloadManager::SessionData &DownloadManager::sessionData(
 
 void DownloadManager::writePostponed(not_null<Main::Session*> session) {
 	session->account().local().updateDownloads(serializator(session));
+	session->account().local().updatePausedDownloads(
+		[this, weak = base::make_weak(session)]()
+		-> std::optional<QByteArray> {
+		const auto strong = weak.get();
+		if (!strong) {
+			return std::nullopt;
+		}
+		return serializePaused();
+	});
 }
 
 Fn<std::optional<QByteArray>()> DownloadManager::serializator(
@@ -1271,6 +1421,118 @@ std::vector<DownloadedId> DownloadManager::deserialize(
 		});
 	}
 	return result;
+}
+
+QByteArray DownloadManager::serializePaused() const {
+	auto result = QByteArray();
+	const auto count = _paused.size();
+	auto constant = sizeof(quint64) // documentId
+		+ sizeof(quint64) // photoId
+		+ sizeof(qint64) // itemIdPeer
+		+ sizeof(qint64) // itemIdMsg
+		+ sizeof(quint64) // peerAccessHash
+		+ sizeof(qint32) // downloadType
+		+ sizeof(qint64) // ready
+		+ sizeof(qint64) // total
+		+ sizeof(qint64) // started
+		+ sizeof(qint32); // reason
+	auto size = sizeof(qint32) // version
+		+ sizeof(qint32) // count
+		+ count * constant;
+	for (const auto &d : _paused) {
+		size += Serialize::stringSize(d.path);
+		size += Serialize::stringSize(d.displayName);
+		size += Serialize::stringSize(d.sourceTitle);
+	}
+	result.reserve(size);
+	auto stream = QDataStream(&result, QIODevice::WriteOnly);
+	stream.setVersion(QDataStream::Qt_5_1);
+	stream << qint32(1) << qint32(count);
+	for (const auto &d : _paused) {
+		stream
+			<< quint64(d.documentId)
+			<< quint64(d.photoId)
+			<< qint64(d.itemIdPeer)
+			<< qint64(d.itemIdMsg)
+			<< quint64(d.peerAccessHash)
+			<< qint32(d.downloadType)
+			<< qint64(d.ready)
+			<< qint64(d.total)
+			<< qint64(d.started)
+			<< qint32(d.reason)
+			<< d.path
+			<< d.displayName
+			<< d.sourceTitle;
+	}
+	stream.device()->close();
+	return result;
+}
+
+void DownloadManager::deserializePaused(const QByteArray &serialized) {
+	if (serialized.isEmpty()) {
+		return;
+	}
+	QDataStream stream(serialized);
+	stream.setVersion(QDataStream::Qt_5_1);
+	auto version = qint32();
+	auto count = qint32();
+	stream >> version >> count;
+	if (stream.status() != QDataStream::Ok || version < 1 || count <= 0) {
+		return;
+	}
+	_paused.clear();
+	_paused.reserve(count);
+	for (auto i = 0; i != count; ++i) {
+		auto d = PausedDownloadDescriptor();
+		auto reason = qint32();
+		auto downloadType = qint32();
+		stream
+			>> d.documentId
+			>> d.photoId
+			>> d.itemIdPeer
+			>> d.itemIdMsg
+			>> d.peerAccessHash
+			>> downloadType
+			>> d.ready
+			>> d.total
+			>> d.started
+			>> reason
+			>> d.path
+			>> d.displayName
+			>> d.sourceTitle;
+		d.downloadType = DownloadType(downloadType);
+		d.reason = PauseReason(reason);
+		if (stream.status() != QDataStream::Ok) {
+			_paused.clear();
+			return;
+		}
+		_paused.push_back(std::move(d));
+	}
+}
+
+void DownloadManager::validatePausedDownloads() {
+	for (auto &d : _paused) {
+		if (d.path.isEmpty()) continue;
+		const auto tempPath = d.path + u".temp"_q;
+		auto info = QFileInfo(tempPath);
+		if (info.exists()) {
+			d.path = tempPath;
+			const auto actual = info.size();
+			if (actual < d.ready) {
+				d.ready = actual;
+			}
+			continue;
+		}
+		info = QFileInfo(d.path);
+		if (!info.exists()) {
+			d.ready = 0;
+			continue;
+		}
+		const auto actual = info.size();
+		if (actual < d.ready) {
+			d.ready = actual;
+		}
+	}
 }
 
 void DownloadManager::untrack(not_null<Main::Session*> session) {

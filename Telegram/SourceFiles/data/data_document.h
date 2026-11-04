@@ -149,6 +149,9 @@ public:
 	void cancel();
 	[[nodiscard]] bool cancelled() const;
 	void resetCancelled();
+	[[nodiscard]] bool paused() const;
+	void pauseLoad(int64 *outReadyBytes = nullptr);
+	void resumeLoad(int64 offset);
 	[[nodiscard]] float64 progress() const;
 	[[nodiscard]] int64 loadOffset() const;
 	[[nodiscard]] bool uploading() const;
@@ -345,6 +348,7 @@ private:
 		StoryDocument = 0x1000,
 		SilentVideo = 0x2000,
 		FileSaveForbidden = 0x4000,
+		DownloadPaused = 0x8000,
 	};
 	using Flags = base::flags<Flag>;
 	friend constexpr bool is_flag_type(Flag) { return true; };
