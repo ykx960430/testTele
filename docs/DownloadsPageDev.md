@@ -1149,67 +1149,81 @@ download_progress : ... {}
 
 ## 六、开发任务拆分
 
-### Phase 1：基础设施（核心）
+### Phase 1：基础设施（核心）✅ 已完成
+
+**Git 锚点**: `v0.1.0-phase1-pause-resume`  
+**提交**: `b7f1567` feat: download system Phase 1 - pause/resume infrastructure  
+**改动**: 11 个文件
+
+| # | 任务 | 文件 | 状态 |
+|---|------|------|------|
+| T1.1 | `PauseReason` 枚举 + `PausedDownloadDescriptor` 结构体 | `data_download_manager.h` | ✅ |
+| T1.2 | `FileLoader::pause()` / `resume()` / `setStartOffset()` + checkForOpen Appender 模式 | `file_download.h/.cpp` | ✅ |
+| T1.3 | `mtpFileLoader` 全部 4 个构造函数加 `startOffset` 参数 | `file_download_mtproto.h/.cpp` | ✅ |
+| T1.4 | `.temp` 部分文件命名（下载时 `.temp`，完成后 rename） | `file_download.cpp` | ✅ |
+| T1.5 | `DocumentData::pauseLoad()` / `resumeLoad()` + `DownloadPaused` 标志 | `data_document.h/.cpp` | ✅ |
+| T1.6 | `DownloadManager::pauseAll()` / `pauseOne()` | `data_download_manager.cpp` | ✅ |
+| T1.7 | `DownloadManager::resumeOne()` / `cancelPaused()` | `data_download_manager.cpp` | ✅ |
+| T1.8 | `serializePaused()` / `deserializePaused()` — QDataStream round-trip | `data_download_manager.cpp` | ✅ |
+| T1.9 | `updatePausedDownloads()` / `pausedDownloadsSerialized()` + write/read 流 | `storage_account.h/.cpp` | ✅ |
+| T1.10 | `writePostponed()` 中增加 paused 序列化调用 | `data_download_manager.cpp` | ✅ |
+| T1.11 | `Application::downloadPreventsExit()` — 不再阻塞退出 | `core/application.cpp` | ✅ |
+| T1.12 | `loadingStopSilent()` — 调 `pauseAll()` | `data_download_manager.cpp` | ✅ |
+| T1.13 | `loadingCount()` / `pausedCount()` / `pausedList()` 只读访问器 | `data_download_manager.h/.cpp` | ✅ |
+| T1.14 | `pausedListChanges()` rpl 信号 | `data_download_manager.h/.cpp` | ✅ |
+| T1.15 | `validatePausedDownloads()` — 反序列化后校验文件 size | `data_download_manager.cpp` | ✅ |
+
+**未编译验证**：工作区 `D:\Work\AyuGramDesktop` 没有预配的 CMake `out/` 目录，需要在有 VS2022 + Qt 环境的 x64 Native Tools Command Prompt 中执行 `cmake --build out --config Debug --target Telegram` 验证。
+
+### Phase 2-A：BigPage 骨架 ✅ 已完成
+
+**Git 锚点**: `v0.1.1-before-bigpage`（开发前）  
+**提交**: `11050c5` feat: BigPage skeleton — section registration and empty widget  
+**改动**: 8 文件，+172 行
+
+| # | 任务 | 文件 | 状态 |
+|---|------|------|------|
+| T2A.1 | `Section::Type::DownloadsBig` 枚举 + `DownloadsBig::Tag` | `info_controller.h` | ✅ |
+| T2A.2 | `Info::Key(DownloadsBig::Tag)` + `isDownloadsBig()` | `info_controller.h/.cpp` | ✅ |
+| T2A.3 | `ContentMemento(DownloadsBig::Tag)` + `key()` 分支 | `info_content_widget.h/.cpp` | ✅ |
+| T2A.4 | `BigPageMemento` + `BigPageWidget` stub 类 | `info/downloads/info_downloads_big_widget.h/.cpp` | ✅ |
+| T2A.5 | `DownloadsBig::Make(self)` 工厂函数 | `info/downloads/info_downloads_big_widget.cpp` | ✅ |
+| T2A.6 | WrapWidget 路由守卫 (setupTopBarWidgets / activeChat / requireTopBarSearch) | `info_wrap_widget.cpp` | ✅ |
+| T2A.7 | CMakeLists.txt 添加新文件 | `Telegram/CMakeLists.txt` | ✅ |
+
+### Phase 2-B：BigPage 视觉层 ⏳ 待开发
+
+**建议执行顺序**（每个子任务独立 commit，便于 review 和回滚）：
 
 | # | 任务 | 文件 | 估计 |
 |---|------|------|------|
-| T1.1 | PausedDownload 结构体定义 | `data_download_manager.h` | 1h |
-| T1.2 | FileLoader::pause() 实现 | `file_download.cpp` + `.h` | 2h |
-| T1.3 | mtpFileLoader 适配（startOffset + resume） | `file_download_mtproto.cpp` + `.h` | 3h |
-| T1.4 | DocumentData::pauseLoad() / resumeLoad() | `data_document.cpp` | 3h |
-| T1.5 | Partial File Naming（.download 后缀） | `file_download.cpp` | 2h |
-| T1.6 | DownloadManager::pauseAll / resumeAll / pauseOne / resumeOne 实现 | `data_download_manager.cpp` | 4h |
-| T1.7 | 序列化 PausedDownload 列表 | `data_download_manager.cpp` (serializator + deserialize) | 3h |
-| T1.8 | StorageKey 注册 | `storage/storage_account.h/.cpp` | 1h |
+| T2B.1 | StatsAggregator 逻辑（统计各类型文件数+大小） | `info/downloads/info_downloads_big_widget.h/.cpp` 或独立文件 | 2h |
+| T2B.2 | FilterTabs UI（全部/视频/图片/文档/其他） | 同上 | 1.5h |
+| T2B.3 | DownloadingItemWidget（进度条+状态机+文件名+来源） | 独立文件或 big_widget 内部 | 3h |
+| T2B.4 | DownloadedItemWidget（打开/在文件夹显示/删除） | 同上 | 2h |
+| T2B.5 | BigPageWidget 容器重构（整合 Stats+Tabs+双列表） | `info_downloads_big_widget.cpp` | 2h |
+| T2B.6 | 视觉样式 `.style` 文件 | `info/downloads/info_downloads_big.style` 或复用 `style_info` | 2h |
 
-### Phase 2：退出行为改造
+### Phase 2-C：侧边栏入口 + 交互闭环 ⏳ 待开发
 
 | # | 任务 | 文件 | 估计 |
 |---|------|------|------|
-| T2.1 | `loadingStopSilent()` 实现 | `data_download_manager.cpp` | 1h |
-| T2.2 | `Application::downloadPreventsQuit()` 改造 | `core/application.cpp` | 1h |
-| T2.3 | 启动时 PausedDownload 恢复检测 + 信号连接 | `data_download_manager.cpp` 构造 | 2h |
+| T2C.1 | 下载 SVG 图标 | `Resources/gui/icons/downloads.svg` | 0.5h |
+| T2C.2 | 侧边栏按钮创建 + `pausedCount` 角标信号绑定 | `window/window_filters_menu.h/.cpp` | 1.5h |
+| T2C.3 | 点击跳转 BigPage 的导航入口 (`DownloadsBig::Make(self)`) | `window_filters_menu.cpp` | 0.5h |
+| T2C.4 | 顶栏菜单（全部暂停/继续） | `info/info_wrap_widget.cpp` | 1h |
+| T2C.5 | 右键菜单（暂停/恢复/取消/在文件夹打开） | 各自 ItemWidget + `Ui::PopupMenu` | 2h |
+| T2C.6 | 文本本地化 (`lang.strings`) | `Resources/langs/lang.strings` | 0.5h |
 
-### Phase 3：侧边栏入口
-
-| # | 任务 | 文件 | 估计 |
-|---|------|------|------|
-| T3.1 | 下载 SVG 图标 | `Resources/gui/icons/` | 0.5h |
-| T3.2 | 按钮创建 + Badge 信号绑定 | `window_filters_menu.h/.cpp` | 1.5h |
-| T3.3 | 跳转到 BigPage 的导航入口 | `window_filters_menu.cpp` + `MakeBig` 函数 | 0.5h |
-
-### Phase 4：BigPage 框架
+### Phase 3：集成测试 ⏳ 待开发
 
 | # | 任务 | 文件 | 估计 |
 |---|------|------|------|
-| T4.1 | Section 枚举追加 + Memento/Widget 框架新建 | `info_controller.h` + 新建 memento 文件 | 2h |
-| T4.2 | BigPageWidget 基础布局 (VerticalLayout + ScrollArea) | `info/downloads/info_downloads_big_page.h/.cpp` | 3h |
-| T4.3 | TopBar 齿轮按钮（跳转高级设置） | `wrap_widget.cpp` 路由扩展 | 1h |
-| T4.4 | 统计卡片 StatsAggregator 逻辑 | `info/downloads/stats_aggregator.h/.cpp` | 2h |
-| T4.5 | 统计卡片 UI 实现 | 同上 | 3h |
-| T4.6 | 类型 FilterTabs + Provider filter | `info/downloads/info_downloads_big_page.h/.cpp` | 2h |
-
-### Phase 5：下载项 UI
-
-| # | 任务 | 文件 | 估计 |
-|---|------|------|------|
-| T5.1 | DownloadingItemWidget 实现 | `ui/widgets/downloading_item_widget.h/.cpp` | 4h |
-| T5.2 | DownloadedItemWidget 实现 | `ui/widgets/downloaded_item_widget.h/.cpp` | 3h |
-| T5.3 | DownloadingProvider 实现 | `info/downloads/info_downloads_provider.h/.cpp` | 3h |
-| T5.4 | DownloadedProvider 实现 | `info/downloads/downloaded_provider.h/.cpp` | 2h |
-| T5.5 | 右键菜单（长按菜单实现） | 各自 Item Widget 中 | 2h |
-| T5.6 | 错误状态展示 | Widget | 1h |
-
-### Phase 6：集成测试
-
-| # | 任务 | 文件 | 估计 |
-|---|------|------|------|
-| T6.1 | 编译验证 | — | 1h |
-| T6.2 | Debug build 运行 | — | 1h |
-| T6.3 | 手动测试：下载 → 退出 → 启动 → 续传 | — | 2h |
-| T6.4 | 手动测试：暂停/继续、断网恢复 | — | 1h |
-| T6.5 | 手动测试：来源消息删除后恢复 | — | 0.5h |
-| T6.6 | 手动测试：多 Account 场景 | — | 0.5h |
+| T3.1 | CMake 配置 + Debug build | — | 1-3h（含环境配置） |
+| T3.2 | 运行期测试：下载 → 退出 → 启动 → 续传 | — | 2h |
+| T3.3 | 运行期测试：暂停/继续、断网恢复 | — | 1h |
+| T3.4 | 运行期测试：来源消息删除后 UI 是否健壮 | — | 0.5h |
+| T3.5 | 运行期测试：多 Account 场景 | — | 0.5h |
 
 ---
 
@@ -1235,51 +1249,49 @@ download_progress : ... {}
 
 ## 八、关键文件变更清单
 
-### 修改文件
+### Phase 1 + Phase 2-A 已修改文件（当前 HEAD）
 
 | 文件 | 变更类型 |
 |------|---------|
-| `Telegram/SourceFiles/data/data_download_manager.h` | 新增 struct、新增接口声明 |
-| `Telegram/SourceFiles/data/data_download_manager.cpp` | 新增 pause/resume 实现、新增序列化 |
-| `Telegram/SourceFiles/data/data_document.h` | 新增 pauseLoad/resumeLoad |
-| `Telegram/SourceFiles/data/data_document.cpp` | 新增 pauseLoad/resumeLoad |
-| `Telegram/SourceFiles/storage/file_download.h` | 新增 pause/resume/setStartOffset 声明 |
-| `Telegram/SourceFiles/storage/file_download.cpp` | 新增 pause/resume 实现 |
-| `Telegram/SourceFiles/storage/file_download_mtproto.h` | 新增 startOffset 成员、resume 声明 |
-| `Telegram/SourceFiles/storage/file_download_mtproto.cpp` | 适配 startOffset/resume |
-| `Telegram/SourceFiles/storage/storage_account.h` | 新增 StorageKey |
-| `Telegram/SourceFiles/storage/storage_account.cpp` | 新增序列化读/写 |
-| `Telegram/SourceFiles/core/application.cpp` | 改造退出流程 |
-| `Telegram/SourceFiles/window/window_filters_menu.h` | 新增下载按钮成员 |
-| `Telegram/SourceFiles/window/window_filters_menu.cpp` | 新增按钮创建、信号绑定 |
-| `Telegram/SourceFiles/info/info_controller.h` | DownloadsBig 枚举 |
-| `Telegram/SourceFiles/info/info_wrap_widget.cpp` | BigPage 路由 |
-| `Telegram/SourceFiles/info/downloads/info_downloads_provider.h` | pause/sourceTitle 字段扩展 |
-| `Telegram/SourceFiles/info/downloads/info_downloads_provider.cpp` | 适配 pause/sourceTitle |
+| `Telegram/SourceFiles/data/data_download_manager.h` | 新增 PausedDownloadDescriptor / PauseReason；新增 pauseAll/pauseOne/resumeOne/cancelPaused/loadingStopSilent/loadingCount/pausedCount/pausedList/pausedListChanges 接口 |
+| `Telegram/SourceFiles/data/data_download_manager.cpp` | 完整实现上述接口 + serializePaused/deserializePaused + validatePausedDownloads |
+| `Telegram/SourceFiles/data/data_document.h` | 新增 pauseLoad/resumeLoad/paused；DownloadPaused 标志 |
+| `Telegram/SourceFiles/data/data_document.cpp` | 完整实现上述接口 |
+| `Telegram/SourceFiles/storage/file_download.h` | 新增 pause/resume/setStartOffset；构造函数加 startOffset 参数 |
+| `Telegram/SourceFiles/storage/file_download.cpp` | pause/resume/checkForOpen Appender/temp 命名/finalizeResult rename |
+| `Telegram/SourceFiles/storage/file_download_mtproto.h` | 构造函数加 startOffset；_startOffset 成员 |
+| `Telegram/SourceFiles/storage/file_download_mtproto.cpp` | 4 个构造函数初始化 _nextRequestOffset(startOffset) |
+| `Telegram/SourceFiles/storage/storage_account.h` | 新增 updatePausedDownloads/pausedDownloadsSerialized |
+| `Telegram/SourceFiles/storage/storage_account.cpp` | 序列化写/读追加 _pausedDownloadsSerialized |
+| `Telegram/SourceFiles/core/application.cpp` | downloadPreventsExit 不再阻塞退出 |
+| `Telegram/SourceFiles/info/info_controller.h` | Section::Type::DownloadsBig 枚举；Key 构造函数 + isDownloadsBig |
+| `Telegram/SourceFiles/info/info_controller.cpp` | Key 枚举构造函数实现 |
+| `Telegram/SourceFiles/info/info_content_widget.h` | ContentMemento 加 DownloadsBig::Tag 构造 + isDownloadsBig |
+| `Telegram/SourceFiles/info/info_content_widget.cpp` | key() 返回 DownloadsBig::Tag |
+| `Telegram/SourceFiles/info/info_wrap_widget.cpp` | 3 处守卫 |
+| `Telegram/CMakeLists.txt` | 添加 BigPage 文件 |
 
-### 新增文件
+### Phase 1 + Phase 2-A 新增文件
 
 | 文件 | 说明 |
 |------|------|
-| `Telegram/SourceFiles/info/downloads/info_downloads_big_page.h` | BigPage Memento + Widget + Inner |
-| `Telegram/SourceFiles/info/downloads/info_downloads_big_page.cpp` | BigPage 实现 |
-| `Telegram/SourceFiles/info/downloads/stats_aggregator.h` | 统计聚合 |
-| `Telegram/SourceFiles/info/downloads/stats_aggregator.cpp` | 统计聚合 |
-| `Telegram/SourceFiles/info/downloads/downloading_provider.h` | 正在下载 Provider |
-| `Telegram/SourceFiles/info/downloads/downloading_provider.cpp` | 正在下载 Provider |
-| `Telegram/SourceFiles/info/downloads/downloaded_provider.h` | 已完成 Provider |
-| `Telegram/SourceFiles/info/downloads/downloaded_provider.cpp` | 已完成 Provider |
-| `Telegram/SourceFiles/ui/widgets/downloading_item_widget.h` | 自定义下载项 Widget |
-| `Telegram/SourceFiles/ui/widgets/downloading_item_widget.cpp` | 同上 |
-| `Telegram/SourceFiles/ui/widgets/downloaded_item_widget.h` | 自定义已完成项 Widget |
-| `Telegram/SourceFiles/ui/widgets/downloaded_item_widget.cpp` | 同上 |
+| `Telegram/SourceFiles/info/downloads/info_downloads_big_widget.h` | BigPage Memento + Widget + Make 工厂 |
+| `Telegram/SourceFiles/info/downloads/info_downloads_big_widget.cpp` | BigPage stub 实现 |
+
+### Phase 2-B 待新增文件（预估）
+
+| 文件 | 说明 |
+|------|------|
+| `Telegram/SourceFiles/info/downloads/info_downloads_big_widget.cpp` | 视觉层全量重写（Stats+Tabs+列表） |
+| `Telegram/SourceFiles/info/downloads/info_downloads_big.style` | BigPage 样式定义（或内联到 .cpp） |
+
+### Phase 2-C 待新增文件（预估）
+
+| 文件 | 说明 |
+|------|------|
+| `Telegram/SourceFiles/window/window_filters_menu.h` | 下载侧边栏按钮成员 |
+| `Telegram/SourceFiles/window/window_filters_menu.cpp` | 按钮创建 + Badge 信号绑定 |
 | `Telegram/Resources/gui/icons/downloads.svg` | 侧栏下载图标 |
-| `Telegram/Resources/gui/icons/folder_open.svg` | 在文件夹打开图标 |
-| `Telegram/Resources/gui/icons/pause.svg` | 暂停图标 |
-| `Telegram/Resources/gui/icons/resume.svg` | 恢复图标 |
-| `Telegram/Resources/gui/icons/cancel.svg` | 取消图标 |
-| `Telegram/Resources/langs/lang.strings` | 新增本地化字符串 |
-| `Telegram/Resources/langs/lang.strings` | 新增统计卡片标题等 |
 
 ---
 
