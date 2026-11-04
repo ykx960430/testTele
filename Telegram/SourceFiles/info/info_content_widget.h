@@ -280,6 +280,7 @@ public:
 	explicit ContentMemento(PeerGifts::Tag gifts);
 	explicit ContentMemento(Settings::Tag settings);
 	explicit ContentMemento(Downloads::Tag downloads);
+	explicit ContentMemento(DownloadsBig::Tag downloadsBig);
 	explicit ContentMemento(Stories::Tag stories);
 	explicit ContentMemento(Saved::MusicTag music);
 	explicit ContentMemento(Statistics::Tag statistics);
@@ -364,6 +365,9 @@ public:
 	[[nodiscard]] UserData *globalMediaSelf() const {
 		return _globalMediaSelf;
 	}
+	[[nodiscard]] bool isDownloadsBig() const {
+		return _downloadsBig;
+	}
 	[[nodiscard]] Key key() const;
 
 	[[nodiscard]] virtual Section section() const = 0;
@@ -414,6 +418,8 @@ private:
 	Data::ReactionId _reactionsSelected;
 	const FullMsgId _pollReactionsContextId;
 	UserData * const _globalMediaSelf = nullptr;
+
+	bool _downloadsBig = false;
 
 	int _scrollTop = 0;
 	QString _searchFieldQuery;

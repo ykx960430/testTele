@@ -54,6 +54,9 @@ Key::Key(Settings::Tag settings) : _value(settings) {
 Key::Key(Downloads::Tag downloads) : _value(downloads) {
 }
 
+Key::Key(DownloadsBig::Tag downloadsBig) : _value(downloadsBig) {
+}
+
 Key::Key(Stories::Tag stories) : _value(stories) {
 }
 
@@ -129,6 +132,10 @@ UserData *Key::settingsSelf() const {
 
 bool Key::isDownloads() const {
 	return v::is<Downloads::Tag>(_value);
+}
+
+bool Key::isDownloadsBig() const {
+	return v::is<DownloadsBig::Tag>(_value);
 }
 
 bool Key::isGlobalMedia() const {

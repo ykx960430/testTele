@@ -337,6 +337,7 @@ Dialogs::RowDescriptor WrapWidget::activeChat() const {
 			FullMsgId());
 	} else if (key().settingsSelf()
 			|| key().isDownloads()
+			|| key().isDownloadsBig()
 			|| key().reactionsContextId()
 			|| key().poll()
 			|| key().starrefPeer()
@@ -552,6 +553,7 @@ void WrapWidget::setupTopBarMenuToggle() {
 				addTopBarMenuButton();
 			}
 		}, _topBar->lifetime());
+	} else if (section.type() == Section::Type::DownloadsBig) {
 	} else if (key.giftsPeer()) {
 		addTopBarMenuButton();
 	} else if (section.type() == Section::Type::Statistics) {
@@ -694,7 +696,8 @@ bool WrapWidget::requireTopBarSearch() const {
 		|| !_controller->searchFieldController()
 		|| (_controller->wrap() == Wrap::Layer)
 		|| (_controller->section().type() == Section::Type::Profile)
-		|| key().isDownloads()) {
+		|| key().isDownloads()
+		|| key().isDownloadsBig()) {
 		return false;
 	} else if (hasStackHistory()
 		|| _controller->section().type() == Section::Type::RequestsList) {

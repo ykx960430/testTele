@@ -663,6 +663,8 @@ Key ContentMemento::key() const {
 		return Key(who, _reactionsSelected, _pollReactionsContextId);
 	} else if (const auto another = globalMediaSelf()) {
 		return GlobalMedia::Tag{ another };
+	} else if (isDownloadsBig()) {
+		return DownloadsBig::Tag();
 	} else {
 		return Downloads::Tag();
 	}
@@ -700,6 +702,10 @@ ContentMemento::ContentMemento(Settings::Tag settings)
 }
 
 ContentMemento::ContentMemento(Downloads::Tag downloads) {
+}
+
+ContentMemento::ContentMemento(DownloadsBig::Tag downloadsBig)
+: _downloadsBig(true) {
 }
 
 ContentMemento::ContentMemento(Stories::Tag stories)

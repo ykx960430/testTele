@@ -47,6 +47,13 @@ struct Tag {
 
 } // namespace Info::Downloads
 
+namespace Info::DownloadsBig {
+
+struct Tag {
+};
+
+} // namespace Info::DownloadsBig
+
 namespace Info::GlobalMedia {
 
 struct Tag {
@@ -87,6 +94,7 @@ public:
 	explicit Key(not_null<Data::SavedMessages*> savedMessages);
 	Key(Settings::Tag settings);
 	Key(Downloads::Tag downloads);
+	Key(DownloadsBig::Tag downloadsBig);
 	Key(Stories::Tag stories);
 	Key(Saved::MusicTag music);
 	Key(Statistics::Tag statistics);
@@ -105,6 +113,7 @@ public:
 	[[nodiscard]] Data::SavedMessages *savedMessages() const;
 	[[nodiscard]] UserData *settingsSelf() const;
 	[[nodiscard]] bool isDownloads() const;
+	[[nodiscard]] bool isDownloadsBig() const;
 	[[nodiscard]] bool isGlobalMedia() const;
 	[[nodiscard]] bool globalMediaOnlyForwardable() const;
 	[[nodiscard]] PeerData *storiesPeer() const;
@@ -140,6 +149,7 @@ private:
 		not_null<Data::SavedMessages*>,
 		Settings::Tag,
 		Downloads::Tag,
+		DownloadsBig::Tag,
 		Stories::Tag,
 		Saved::MusicTag,
 		Statistics::Tag,
@@ -173,6 +183,7 @@ public:
 		Members,
 		Settings,
 		Downloads,
+		DownloadsBig,
 		Stories,
 		SavedMusic,
 		PollResults,
