@@ -22,21 +22,29 @@ jobs:
       - name: Patch prepare.py msys64 stage
         shell: python
         run: |
-          import re, pathlib
+          import pathlib
           f = pathlib.Path("Telegram/build/prepare/prepare.py")
           content = f.read_text(encoding="utf-8")
-          # The second pacman call (package install) uses `pacman -Syu --noconfirm ^`
-          # which re-runs a full upgrade after the shell restart from the first pacman
-          # core upgrade. Change it to `pacman -S --noconfirm ^` to avoid re-syncing.
-          new_content = content.replace(
+
+          # Fix 1: pacman -Syu --noconfirm in package install stage can fail after
+          # the shell restart from the first pacman -Syu core upgrade.
+          # Change it to pacman -S (install without full system upgrade).
+          content = content.replace(
               "pacman -Syu --noconfirm ^\n        make ^",
               "pacman -S --noconfirm ^\n        make ^"
           )
-          f.write_text(new_content, encoding="utf-8")
-          if new_content != content:
-              print("Patched prepare.py: pacman -Syu -> pacman -S for package install")
-          else:
-              print("WARNING: replacement did not match!")
+
+          # Fix 2: mingw-w64-x86_64-diffutils has been removed from current MSYS2
+          # mirrors. Remove it from the package list. `diff` is not required for
+          # the Telegram build; the remaining tools (make, gperf, nasm, perl,
+          # pkgconf) are what the build actually needs.
+          content = content.replace(
+              "        mingw-w64-x86_64-diffutils ^\n",
+              ""
+          )
+
+          f.write_text(content, encoding="utf-8")
+          print("Patched prepare.py msys64: -S -> -S, removed diffutils")
 
       - name: Prepare ThirdParty
         shell: cmd
