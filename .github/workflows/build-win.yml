@@ -11,63 +11,64 @@ jobs:
 
     env:
       Platform: x64
-      TBUILD: D:\tbuild
-      QT: 6.11.2
 
     steps:
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
+      - name: Show Python info
+        shell: cmd
+        run: where python && python --version
 
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
-          lfs: true
 
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-          vsversion: 2022
-
-      - name: Free disk space and show disk
+      - name: Show runner info
         shell: powershell
         run: |
-          Remove-Item -Recurse -Force "$env:USERPROFILE\AppData\Local\npm-cache" -ErrorAction SilentlyContinue
-          Remove-Item -Recurse -Force "$env:USERPROFILE\AppData\Local\nuget\packages" -ErrorAction SilentlyContinue
-          Remove-Item -Recurse -Force "C:\Program Files\dotnet" -ErrorAction SilentlyContinue
-          Remove-Item -Recurse -Force "C:\Program Files\android" -ErrorAction SilentlyContinue
-          Get-PSDrive C, D | Format-Table Name, @{N='Free(GB)';E={[math]::Round($_.Free/1GB,2)}}, @{N='Used(GB)';E={[math]::Round($_.Used/1GB,2)}}
+          echo "OS: $([System.Environment]::OSVersion)"
+          echo "CPU: $env:NUMBER_OF_PROCESSORS cores"
+          $os = Get-CimInstance Win32_OperatingSystem
+          $free = [math]::Round($os.FreePhysicalMemory / 1MB, 1)
+          $total = [math]::Round($os.TotalVisibleMemorySize / 1MB, 1)
+          echo "RAM: $free GB free / $total GB total"
+          Get-PSDrive C, D | Format-Table Name,
+            @{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}},
+            @{N='Used(GB)';E={[math]::Round($_.Used/1GB,1)}}
 
-      - name: Verify submodules
+      - name: Checkout submodules (force)
         shell: powershell
         run: |
-          $empty = Get-ChildItem -Path "Telegram\ThirdParty","Telegram" -Recurse -Directory -ErrorAction SilentlyContinue | Where-Object { -not (($_.GetFiles().Count) + ($_.GetDirectories().Count)) }
-          if ($empty) { Write-Host "WARN: Empty submodules:"; $empty | Select-Object -First 20 | ForEach-Object { Write-Host "  $($_.FullName)" } } else { Write-Host "Submodules OK" }
-          cmd /c "git submodule status --recursive 2>&1" | Select-String "^-" | Select-Object -First 10
-
-      - name: Force init missing submodules
-        shell: cmd
-        run: git submodule update --init --recursive --force 2>&1
-        continue-on-error: true
+          git submodule update --init --recursive --force 2>&1
+          if ($LASTEXITCODE -ne 0) { Write-Host "Some submodules may have failed, continuing..." }
 
       - name: Prepare ThirdParty
         working-directory: ${{ github.workspace }}\Telegram\build\prepare
-        shell: cmd
-        run: set Platform=x64 && python prepare.py --qt6 --skip-qt5 --skip-tg_owt --skip-breakpad --skip-openal-soft --skip-ffmpeg --skip-nv-codec-headers --skip-libwebp --skip-libjxl
+        shell: powershell
+        run: |
+          $env:Platform = "x64"
+          $env:QT = "6.11.2"
+          python prepare.py --qt6 --skip-qt5 --skip-tg_owt --skip-breakpad --skip-openal-soft --skip-ffmpeg --skip-nv-codec-headers --skip-libwebp --skip-libjxl
+          if ($LASTEXITCODE -ne 0) { Write-Host "prepare.py failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
         timeout-minutes: 120
 
       - name: Configure CMake
-        shell: cmd
-        run: set Platform=x64 && cmake -G "Visual Studio 17 2022" -A x64 -B out -S Telegram -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON
+        shell: powershell
+        run: |
+          $env:Platform = "x64"
+          cmake -G "Visual Studio 17 2022" -A x64 -B out -S Telegram `
+            -DCMAKE_BUILD_TYPE=Debug `
+            -DTDESKTOP_API_ID=1096745 `
+            -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f `
+            -DT_DISABLE_DEBUG_SKIPPING=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Telegram
-        shell: cmd
-        run: set Platform=x64 && cmake --build out --config Debug --target Telegram --parallel 2
+        shell: powershell
+        run: |
+          $env:Platform = "x64"
+          cmake --build out --config Debug --target Telegram --parallel 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         timeout-minutes: 300
 
       - name: Upload Artifact
@@ -76,5 +77,4 @@ jobs:
         with:
           name: Telegram-Windows-Debug
           path: ${{ github.workspace }}\out\Debug\*
-          compression-level: 6
           retention-days: 14
