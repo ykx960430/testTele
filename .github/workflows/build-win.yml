@@ -19,69 +19,46 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Show environment
-        shell: powershell
+      - name: Print build environment
+        shell: cmd
         run: |
-          Write-Host "Workspace: $env:GITHUB_WORKSPACE"
-          Write-Host "Python: $(python --version 2>&1)"
-          Write-Host "CMake: $(cmake --version 2>&1 | Select-Object -First 1)"
-          Write-Host "Ninja: $(ninja --version 2>&1)"
-          $os = Get-CimInstance Win32_OperatingSystem
-          Write-Host "RAM: $([math]::Round($os.FreePhysicalMemory / 1MB, 1)) GB free"
-          Get-PSDrive C, D | Format-Table Name,
-            @{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}},
-            @{N='Used(GB)';E={[math]::Round($_.Used/1GB,1)}}
+          echo "=== os ==="
+          ver
+          echo "=== python ==="
+          where python
+          python --version
+          echo "=== VS ==="
+          where cl 2>nul || echo not found
+          echo "=== cmake ==="
+          cmake --version
+          echo "=== env Platform ==="
+          echo Platform=%Platform%
+          echo "=== disk ==="
+          wmic logicaldisk get caption,freespace,size
+          echo "=== mem ==="
+          wmic os get FreePhysicalMemory,TotalVisibleMemorySize
 
-      - name: List repo structure
-        shell: powershell
+      - name: Test python can run prepare.py import
+        shell: cmd
         run: |
-          if (Test-Path "$env:GITHUB_WORKSPACE\Telegram\build\prepare\prepare.py") {
-            Write-Host "prepare.py FOUND"
-          } else {
-            Write-Host "prepare.py NOT FOUND"
-            Get-ChildItem "$env:GITHUB_WORKSPACE\Telegram\build\" -Recurse -Name | Select-Object -First 20
-          }
-          Write-Host "---"
-          Get-ChildItem "$env:GITHUB_WORKSPACE\Telegram\ThirdParty\" -Directory | Select-Object Name | Format-Table
-          Write-Host "---"
-          if (Test-Path "$env:GITHUB_WORKSPACE\Libraries") { Write-Host "Libraries exists" } else { Write-Host "Libraries MISSING" }
+          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
+          echo "=== cwd ==="
+          cd
+          echo "=== python test import ==="
+          python -c "import sys; sys.path.insert(0, '.'); sys.path.insert(0, '..'); import qt_version; print('qt_version imported OK'); print('QT:', __import__('os').environ.get('QT', 'NOT SET'))" 2>&1
+          echo "=== test env Platform ==="
+          set Platform=x64
+          python -c "import os; print('Platform in os.environ:', 'Platform' in os.environ); print('Value:', os.environ.get('Platform', 'NOT SET'))" 2>&1
+          echo "=== try running prepare.py --help ==="
+          python prepare.py --help 2>&1 || echo "FAILED with errorlevel %errorlevel%"
 
-      - name: Prepare ThirdParty (silent)
-        shell: bash
+      - name: Run prepare.py (silent)
+        shell: cmd
         run: |
-          cd "$GITHUB_WORKSPACE/Telegram/build/prepare"
-          export Platform=x64
-          export QT=6.11.2
-          echo "=== Starting prepare.py ==="
-          python prepare.py silent --qt6 --skip-qt5 --skip-tg_owt --skip-breakpad --skip-openal-soft --skip-ffmpeg --skip-nv-codec-headers --skip-libwebp --skip-libjxl 2>&1
-          EXIT_CODE=$?
-          echo "=== prepare.py exit code: $EXIT_CODE ==="
-          exit $EXIT_CODE
+          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
+          set Platform=x64
+          set QT=6.11.2
+          python prepare.py silent --qt6 --skip-tg_owt --skip-breakpad --skip-openal-soft --skip-ffmpeg --skip-nv-codec-headers --skip-libwebp --skip-libjxl
+          echo EXIT_CODE=%errorlevel%
+          exit /b %errorlevel%
         timeout-minutes: 120
-
-      - name: Configure CMake
-        shell: bash
-        run: |
-          cd "$GITHUB_WORKSPACE"
-          export Platform=x64
-          cmake -G "Visual Studio 17 2022" -A x64 -B out -S Telegram \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DTDESKTOP_API_ID=1096745 \
-            -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f \
-            -DT_DISABLE_DEBUG_SKIPPING=ON
-
-      - name: Build Telegram
-        shell: bash
-        run: |
-          cd "$GITHUB_WORKSPACE"
-          export Platform=x64
-          cmake --build out --config Debug --target Telegram --parallel 2
-        timeout-minutes: 300
-
-      - name: Upload Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Telegram-Windows-Debug
-          path: ${{ github.workspace }}/out/Debug/*
-          retention-days: 14
