@@ -26,17 +26,22 @@ jobs:
           f = pathlib.Path("Telegram/build/prepare/prepare.py")
           content = f.read_text(encoding="utf-8")
 
-          # Fix 1: pacman -Syu --noconfirm in package install stage can fail after
-          # the shell restart from the first pacman -Syu core upgrade.
-          # Change it to pacman -S (install without full system upgrade).
+          # Fix 1: Download MSYS2 installer from Aliyun mirror instead of GitHub
+          # releases (which returns 504 Gateway Time-out from GitHub Actions runners).
+          content = content.replace(
+              "https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830.sfx.exe",
+              "https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe"
+          )
+
+          # Fix 2: pacman -Syu in the package install stage can fail after the shell
+          # restart from the first pacman -Syu core upgrade. Change to pacman -S.
           content = content.replace(
               "pacman -Syu --noconfirm ^\n        make ^",
               "pacman -S --noconfirm ^\n        make ^"
           )
 
-          # Fix 2: mingw-w64-x86_64-diffutils has been removed from current MSYS2
-          # mirrors. Remove it from the package list. `diff` is not required for
-          # the Telegram build; the remaining tools (make, gperf, nasm, perl,
+          # Fix 3: mingw-w64-x86_64-diffutils has been removed from current MSYS2
+          # mirrors. Remove it. The remaining tools (make, gperf, nasm, perl,
           # pkgconf) are what the build actually needs.
           content = content.replace(
               "        mingw-w64-x86_64-diffutils ^\n",
@@ -44,7 +49,7 @@ jobs:
           )
 
           f.write_text(content, encoding="utf-8")
-          print("Patched prepare.py msys64: -S -> -S, removed diffutils")
+          print("Patched prepare.py: Aliyun mirror, pacman -S, removed diffutils")
 
       - name: Prepare ThirdParty
         shell: cmd
