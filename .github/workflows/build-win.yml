@@ -19,14 +19,14 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Run prepare.py with full output capture
+      - name: Prepare ThirdParty
         shell: cmd
         run: |
           cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
-          echo === PREPARE START ===
           set Platform=x64
           set QT=6.11.2
-          python -u prepare.py silent qt6 --skip-tg_owt skip-tg_owt skip-tg_owt skip-tg_owt skip-tg_owt skip-tg_owt skip-tg_owt > D:\prep_out.log 2>&1
+          echo === PREPARE START ===
+          python -u prepare.py silent qt6 > D:\prep_out.log 2>&1
           set EXITCODE=%errorlevel%
           echo === PREPARE EXIT CODE: %EXITCODE% ===
           type D:\prep_out.log
