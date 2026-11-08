@@ -10,10 +10,17 @@ jobs:
     runs-on: windows-2022
 
     env:
+      Platform: x64
       TBUILD: D:\tbuild
       QT: 6.11.2
 
     steps:
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -27,54 +34,47 @@ jobs:
           arch: x64
           vsversion: 2022
 
-      - name: Free disk space
+      - name: Free disk space and show disk
         shell: powershell
         run: |
           Remove-Item -Recurse -Force "$env:USERPROFILE\AppData\Local\npm-cache" -ErrorAction SilentlyContinue
           Remove-Item -Recurse -Force "$env:USERPROFILE\AppData\Local\nuget\packages" -ErrorAction SilentlyContinue
           Remove-Item -Recurse -Force "C:\Program Files\dotnet" -ErrorAction SilentlyContinue
           Remove-Item -Recurse -Force "C:\Program Files\android" -ErrorAction SilentlyContinue
-          Remove-Item -Recurse -Force "C:\ProgramData\Microsoft\Windows Defender\Platform" -ErrorAction SilentlyContinue
+          Get-PSDrive C, D | Format-Table Name, @{N='Free(GB)';E={[math]::Round($_.Free/1GB,2)}}, @{N='Used(GB)';E={[math]::Round($_.Used/1GB,2)}}
+
+      - name: Verify submodules
+        shell: powershell
+        run: |
+          $empty = Get-ChildItem -Path "Telegram\ThirdParty","Telegram" -Recurse -Directory -ErrorAction SilentlyContinue | Where-Object { -not (($_.GetFiles().Count) + ($_.GetDirectories().Count)) }
+          if ($empty) { Write-Host "WARN: Empty submodules:"; $empty | Select-Object -First 20 | ForEach-Object { Write-Host "  $($_.FullName)" } } else { Write-Host "Submodules OK" }
+          cmd /c "git submodule status --recursive 2>&1" | Select-String "^-" | Select-Object -First 10
+
+      - name: Force init missing submodules
+        shell: cmd
+        run: git submodule update --init --recursive --force 2>&1
+        continue-on-error: true
 
       - name: Prepare ThirdParty
         working-directory: ${{ github.workspace }}\Telegram\build\prepare
         shell: cmd
-        run: |
-          python prepare.py ^
-            --qt6 ^
-            --skip-qt5 ^
-            --skip-tg_owt ^
-            --skip-breakpad ^
-            --skip-openal-soft ^
-            --skip-ffmpeg ^
-            --skip-nv-codec-headers ^
-            --skip-libwebp ^
-            --skip-libjxl ^
+        run: set Platform=x64 && python prepare.py --qt6 --skip-qt5 --skip-tg_owt --skip-breakpad --skip-openal-soft --skip-ffmpeg --skip-nv-codec-headers --skip-libwebp --skip-libjxl
+        timeout-minutes: 120
 
       - name: Configure CMake
         shell: cmd
-        run: |
-          cmake -G "Visual Studio 17 2022" -A x64 ^
-            -B ${{ github.workspace }}\out ^
-            -S ${{ github.workspace }}\Telegram ^
-            -DCMAKE_BUILD_TYPE=Debug ^
-            -DTDESKTOP_API_ID=1096745 ^
-            -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f ^
-            -DT_DISABLE_DEBUG_SKIPPING=ON
+        run: set Platform=x64 && cmake -G "Visual Studio 17 2022" -A x64 -B out -S Telegram -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON
 
       - name: Build Telegram
         shell: cmd
-        run: |
-          cmake --build ${{ github.workspace }}\out ^
-            --config Debug ^
-            --target Telegram ^
-            --parallel 2
+        run: set Platform=x64 && cmake --build out --config Debug --target Telegram --parallel 2
+        timeout-minutes: 300
 
       - name: Upload Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Telegram-Windows-Debug
-          path: |
-            ${{ github.workspace }}\out\Debug\*
+          path: ${{ github.workspace }}\out\Debug\*
           compression-level: 6
+          retention-days: 14
