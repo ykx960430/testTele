@@ -9,6 +9,9 @@ jobs:
   build:
     runs-on: windows-2022
 
+    env:
+      Platform: x64
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -16,35 +19,30 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Test 1 - check python location
+      - name: Show environment
         shell: cmd
-        run: where python
+        run: where python && python --version && echo Platform=%Platform% && dir Telegram\ThirdParty\
 
-      - name: Test 2 - check workspace path
+      - name: Prepare ThirdParty (silent)
         shell: cmd
-        run: echo %GITHUB_WORKSPACE%
+        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && set Platform=x64 && set QT=6.11.2 && python prepare.py silent --qt6 --skip-qt5 --skip-tg_owt --skip-breakpad --skip-openal-soft --skip-ffmpeg --skip-nv-codec-headers --skip-libwebp --skip-libjxl
+        timeout-minutes: 150
 
-      - name: Test 3 - cd to prepare dir and dir listing
+      - name: Configure CMake
         shell: cmd
-        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && dir
+        run: set Platform=x64 && cmake -G "Visual Studio 17 2022" -A x64 -B out -S Telegram -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON
+        working-directory: ${{ github.workspace }}
 
-      - name: Test 4 - simple python print
+      - name: Build Telegram
         shell: cmd
-        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && python -c "print('hello')"
+        run: set Platform=x64 && cmake --build out --config Debug --target Telegram --parallel 2
+        working-directory: ${{ github.workspace }}
+        timeout-minutes: 300
 
-      - name: Test 5 - cd then python import os
-        shell: cmd
-        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && python -c "import os; print(os.getcwd())"
-
-      - name: Test 6 - import qt_version
-        shell: cmd
-        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && python -c "import sys; sys.path.append('..'); import qt_version; print('OK')"
-
-      - name: Test 7 - run prepare.py --help
-        shell: cmd
-        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && python prepare.py help 2>&1
-
-      - name: Run prepare.py
-        shell: cmd
-        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && set Platform=x64 && set QT=6.11.2 && python prepare.py silent --qt6
-        timeout-minutes: 120
+      - name: Upload Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Telegram-Windows-Debug
+          path: ${{ github.workspace }}\out\Debug\*
+          retention-days: 14
