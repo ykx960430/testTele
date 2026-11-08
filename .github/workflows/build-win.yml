@@ -1,0 +1,80 @@
+name: Windows Build
+
+on:
+  push:
+    branches: [dev, main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    env:
+      TBUILD: D:\tbuild
+      QT: 6.11.2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          lfs: true
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          vsversion: 2022
+
+      - name: Free disk space
+        shell: powershell
+        run: |
+          Remove-Item -Recurse -Force "$env:USERPROFILE\AppData\Local\npm-cache" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "$env:USERPROFILE\AppData\Local\nuget\packages" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "C:\Program Files\dotnet" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "C:\Program Files\android" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "C:\ProgramData\Microsoft\Windows Defender\Platform" -ErrorAction SilentlyContinue
+
+      - name: Prepare ThirdParty
+        working-directory: ${{ github.workspace }}\Telegram\build\prepare
+        shell: cmd
+        run: |
+          python prepare.py ^
+            --qt6 ^
+            --skip-qt5 ^
+            --skip-tg_owt ^
+            --skip-breakpad ^
+            --skip-openal-soft ^
+            --skip-ffmpeg ^
+            --skip-nv-codec-headers ^
+            --skip-libwebp ^
+            --skip-libjxl ^
+
+      - name: Configure CMake
+        shell: cmd
+        run: |
+          cmake -G "Visual Studio 17 2022" -A x64 ^
+            -B ${{ github.workspace }}\out ^
+            -S ${{ github.workspace }}\Telegram ^
+            -DCMAKE_BUILD_TYPE=Debug ^
+            -DTDESKTOP_API_ID=1096745 ^
+            -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f ^
+            -DT_DISABLE_DEBUG_SKIPPING=ON
+
+      - name: Build Telegram
+        shell: cmd
+        run: |
+          cmake --build ${{ github.workspace }}\out ^
+            --config Debug ^
+            --target Telegram ^
+            --parallel 2
+
+      - name: Upload Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Telegram-Windows-Debug
+          path: |
+            ${{ github.workspace }}\out\Debug\*
+          compression-level: 6

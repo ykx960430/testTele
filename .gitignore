@@ -1,79 +1,24 @@
-/out/
-Debug/
-Release/
-/ThirdParty/
-/Telegram/build/target
-/Telegram/build/ai-machine-tag
-/Telegram/tests/
-/Telegram/gyp/tests/*.test
-/Telegram/out/
-/Telegram/*.user
-*.vcxproj*
-*.sln
-*.suo
-*.sdf
-*.opensdf
-*.opendb
-*.VC.db
-*.aps
-*.xcodeproj
-ipch/
-.vs/
-.vscode/
-.cache/
-compile_commands.json
+# Build scripts (local debugging artifacts)
+*.ps1
+*.bat
+*.cmd
+*.log
+*.txt
+*.def
+*.obj
+*.exp
+*.lib
+*.dll
 
-/Telegram/log.txt
-/Telegram/data
-/Telegram/data_config
-/Telegram/DebugLogs/
-/Telegram/tdata/
-/Telegram/tdumps/
+# Build directories
+out/
+out_Release/
+test_arch/
+test_icu74/
+test_codegen_run/
+test_qt_deploy/
 
-.DS_Store
-._*
-.qmake.stash
-/Mac/
-project.xcworkspace
-xcuserdata
-
-parts
-prime
-stage
-*.snap
-.snapcraft
-/snap/gui/*.png
-/snap/gui/*.desktop
-/snap/plugins/__pycache__
-__pycache__/
-*.pyc
-
-/Telegram/*.user.*
-*.txt.user
-*.pro.user
-/Linux/
-/Telegram/Makefile
-*.*~
-.idea/
-cmake-build-debug/
-*.qsb
-
-# Local configuration files
-settings.local.json
-*.local.json
-.env
-.env.local
-.env.*.local
-
-# Cursor IDE local settings (but keep .cursor/rules/)
-.cursor/*
-!.cursor/rules/
-
-# AI work folder (session-specific, not for version control)
-.ai
-
-# Generated changelog page (built by CI, deployed to GitHub Pages)
-/docs/changelog/
-
-# Project specific
-Telegram/SourceFiles/_other/packer_private.h
+# Temporary files
+icuuc_check.bat
+icu_imports.bat
+qt_deps.bat
