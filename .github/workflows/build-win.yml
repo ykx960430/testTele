@@ -7,6 +7,8 @@ on:
 
 env:
   VS_PATH: 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise'
+  QT: '6.11.2'
+  Platform: x64
 
 jobs:
   build:
@@ -25,12 +27,12 @@ jobs:
           import pathlib
           f = pathlib.Path("Telegram/build/prepare/prepare.py")
           content = f.read_text(encoding="utf-8")
-          # Fix 1: Aliyun mirror for MSYS2 installer to avoid GitHub 504 timeout.
+          # Fix 1: Aliyun mirror for MSYS2 installer (GitHub releases gives 504).
           content = content.replace(
               "https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830.sfx.exe",
               "https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe"
           )
-          # Fix 2: pacman -Syu can fail after shell restart from core upgrade.
+          # Fix 2: pacman -Syu can fail after shell restart from core-upgrade.
           content = content.replace(
               "pacman -Syu --noconfirm ^\n        make ^",
               "pacman -S --noconfirm ^\n        make ^"
@@ -70,13 +72,13 @@ jobs:
         shell: cmd
         run: |
           call "%VS_PATH%\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cmake -G "Visual Studio 17 2022" -A x64 -B out -S Telegram -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON
+          cmake -G "Visual Studio 17 2022" -A x64 -B "D:\out" -S "%GITHUB_WORKSPACE%" -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON
 
       - name: Build
         shell: cmd
         run: |
           call "%VS_PATH%\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cmake --build out --config Debug --parallel 2
+          cmake --build "D:\out" --config Debug --parallel 2
         timeout-minutes: 300
 
       - name: Upload Artifact
@@ -84,5 +86,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Telegram-Windows-Debug
-          path: out\Debug\*
+          path: D:\out\Debug\*
           retention-days: 14
