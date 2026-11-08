@@ -19,6 +19,18 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Patch prepare.py msys64 stage
+        shell: powershell
+        run: |
+          $file = "Telegram\build\prepare\prepare.py"
+          $content = Get-Content $file -Raw
+          # Fix: pacman -Syu can fail after core system upgrade restarts shell.
+          # Change the SECOND pacman call (package install) from -Syu to -S
+          # so it doesn't re-run a full upgrade in a fresh shell context.
+          $content = $content -replace 'pacman -Syu --noconfirm \^', 'pacman -S --noconfirm ^'
+          Set-Content -NoNewline $file $content
+          Write-Host "Patched prepare.py: replaced 'pacman -Syu --noconfirm' with 'pacman -S --noconfirm'"
+
       - name: Prepare ThirdParty
         shell: cmd
         run: |
