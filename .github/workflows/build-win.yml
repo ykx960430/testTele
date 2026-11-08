@@ -9,9 +9,6 @@ jobs:
   build:
     runs-on: windows-2022
 
-    env:
-      Platform: x64
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,23 +23,19 @@ jobs:
           f = pathlib.Path("Telegram/build/prepare/prepare.py")
           content = f.read_text(encoding="utf-8")
 
-          # Fix 1: Download MSYS2 installer from Aliyun mirror instead of GitHub
-          # releases (which returns 504 Gateway Time-out from GitHub Actions runners).
+          # Fix 1: Download MSYS2 installer from Aliyun mirror to avoid 504.
           content = content.replace(
               "https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830.sfx.exe",
               "https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe"
           )
 
-          # Fix 2: pacman -Syu in the package install stage can fail after the shell
-          # restart from the first pacman -Syu core upgrade. Change to pacman -S.
+          # Fix 2: pacman -Syu can fail after shell restart from core upgrade.
           content = content.replace(
               "pacman -Syu --noconfirm ^\n        make ^",
               "pacman -S --noconfirm ^\n        make ^"
           )
 
-          # Fix 3: mingw-w64-x86_64-diffutils has been removed from current MSYS2
-          # mirrors. Remove it. The remaining tools (make, gperf, nasm, perl,
-          # pkgconf) are what the build actually needs.
+          # Fix 3: mingw-w64-x86_64-diffutils removed from MSYS2 mirrors.
           content = content.replace(
               "        mingw-w64-x86_64-diffutils ^\n",
               ""
@@ -54,6 +47,7 @@ jobs:
       - name: Prepare ThirdParty
         shell: cmd
         run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
           cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
           set Platform=x64
           set QT=6.11.2
@@ -75,11 +69,15 @@ jobs:
 
       - name: Configure CMake
         shell: cmd
-        run: cmake -G "Visual Studio 17 2022" -A x64 -B out -S Telegram -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+          cmake -G "Visual Studio 17 2022" -A x64 -B out -S Telegram -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON
 
       - name: Build
         shell: cmd
-        run: cmake --build out --config Debug --parallel 2
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+          cmake --build out --config Debug --parallel 2
         timeout-minutes: 300
 
       - name: Upload Artifact
