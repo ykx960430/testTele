@@ -19,24 +19,35 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Show environment
+      - name: Run prepare.py with full output capture
         shell: cmd
-        run: where python && python --version && echo Platform=%Platform% && dir Telegram\ThirdParty\
-
-      - name: Prepare ThirdParty (silent)
-        shell: cmd
-        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && set Platform=x64 && set QT=6.11.2 && python prepare.py silent --qt6 --skip-qt5 --skip-tg_owt --skip-breakpad --skip-openal-soft --skip-ffmpeg --skip-nv-codec-headers --skip-libwebp --skip-libjxl
+        run: |
+          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
+          echo === PREPARE START ===
+          set Platform=x64
+          set QT=6.11.2
+          python -u prepare.py silent --qt6 --skip-qt5 --skip-tg_owt --skip-breakpad --skip-openal-soft --skip-ffmpeg --skip-nv-codec-headers --skip-libwebp --skip-libjxl > D:\prep_out.log 2>&1
+          set EXITCODE=%errorlevel%
+          echo === PREPARE EXIT CODE: %EXITCODE% ===
+          type D:\prep_out.log
+          exit /b %EXITCODE%
         timeout-minutes: 150
+
+      - name: Upload prep log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prep-log
+          path: D:\prep_out.log
+          retention-days: 7
 
       - name: Configure CMake
         shell: cmd
-        run: set Platform=x64 && cmake -G "Visual Studio 17 2022" -A x64 -B out -S Telegram -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON
-        working-directory: ${{ github.workspace }}
+        run: cmake -G "Visual Studio 17 2022" -A x64 -B out -S Telegram -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON
 
-      - name: Build Telegram
+      - name: Build
         shell: cmd
-        run: set Platform=x64 && cmake --build out --config Debug --target Telegram --parallel 2
-        working-directory: ${{ github.workspace }}
+        run: cmake --build out --config Debug --parallel 2
         timeout-minutes: 300
 
       - name: Upload Artifact
@@ -44,5 +55,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Telegram-Windows-Debug
-          path: ${{ github.workspace }}\out\Debug\*
+          path: out\Debug\*
           retention-days: 14
