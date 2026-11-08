@@ -26,7 +26,7 @@ jobs:
           echo === PREPARE START ===
           set Platform=x64
           set QT=6.11.2
-          python -u prepare.py silent --qt6 --skip-qt5 --skip-tg_owt --skip-breakpad --skip-openal-soft --skip-ffmpeg --skip-nv-codec-headers --skip-libwebp --skip-libjxl > D:\prep_out.log 2>&1
+          python -u prepare.py silent qt6 --skip-tg_owt skip-tg_owt skip-tg_owt skip-tg_owt skip-tg_owt skip-tg_owt skip-tg_owt > D:\prep_out.log 2>&1
           set EXITCODE=%errorlevel%
           echo === PREPARE EXIT CODE: %EXITCODE% ===
           type D:\prep_out.log
