@@ -9,9 +9,6 @@ jobs:
   build:
     runs-on: windows-2022
 
-    env:
-      Platform: x64
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,46 +16,35 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Print build environment
+      - name: Test 1 - check python location
         shell: cmd
-        run: |
-          echo "=== os ==="
-          ver
-          echo "=== python ==="
-          where python
-          python --version
-          echo "=== VS ==="
-          where cl 2>nul || echo not found
-          echo "=== cmake ==="
-          cmake --version
-          echo "=== env Platform ==="
-          echo Platform=%Platform%
-          echo "=== disk ==="
-          wmic logicaldisk get caption,freespace,size
-          echo "=== mem ==="
-          wmic os get FreePhysicalMemory,TotalVisibleMemorySize
+        run: where python
 
-      - name: Test python can run prepare.py import
+      - name: Test 2 - check workspace path
         shell: cmd
-        run: |
-          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
-          echo "=== cwd ==="
-          cd
-          echo "=== python test import ==="
-          python -c "import sys; sys.path.insert(0, '.'); sys.path.insert(0, '..'); import qt_version; print('qt_version imported OK'); print('QT:', __import__('os').environ.get('QT', 'NOT SET'))" 2>&1
-          echo "=== test env Platform ==="
-          set Platform=x64
-          python -c "import os; print('Platform in os.environ:', 'Platform' in os.environ); print('Value:', os.environ.get('Platform', 'NOT SET'))" 2>&1
-          echo "=== try running prepare.py --help ==="
-          python prepare.py --help 2>&1 || echo "FAILED with errorlevel %errorlevel%"
+        run: echo %GITHUB_WORKSPACE%
 
-      - name: Run prepare.py (silent)
+      - name: Test 3 - cd to prepare dir and dir listing
         shell: cmd
-        run: |
-          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
-          set Platform=x64
-          set QT=6.11.2
-          python prepare.py silent --qt6 --skip-tg_owt --skip-breakpad --skip-openal-soft --skip-ffmpeg --skip-nv-codec-headers --skip-libwebp --skip-libjxl
-          echo EXIT_CODE=%errorlevel%
-          exit /b %errorlevel%
+        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && dir
+
+      - name: Test 4 - simple python print
+        shell: cmd
+        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && python -c "print('hello')"
+
+      - name: Test 5 - cd then python import os
+        shell: cmd
+        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && python -c "import os; print(os.getcwd())"
+
+      - name: Test 6 - import qt_version
+        shell: cmd
+        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && python -c "import sys; sys.path.append('..'); import qt_version; print('OK')"
+
+      - name: Test 7 - run prepare.py --help
+        shell: cmd
+        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && python prepare.py help 2>&1
+
+      - name: Run prepare.py
+        shell: cmd
+        run: cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare && set Platform=x64 && set QT=6.11.2 && python prepare.py silent --qt6
         timeout-minutes: 120
