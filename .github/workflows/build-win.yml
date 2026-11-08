@@ -72,14 +72,43 @@ jobs:
         shell: cmd
         run: |
           call "%VS_PATH%\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cmake -G "Visual Studio 17 2022" -A x64 -B "D:\out" -S "%GITHUB_WORKSPACE%" -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON
+          echo GITHUB_WORKSPACE=%GITHUB_WORKSPACE%
+          echo QT=%QT%
+          echo Platform=%Platform%
+          dir D:\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\Qt6Config.cmake 2>nul && echo Qt6Config FOUND || echo Qt6Config NOT FOUND
+          dir D:\Libraries\win64\Qt-6.11.2\lib\cmake\ 2>nul && echo cmake dir exists || echo cmake dir NOT FOUND
+          cmake -G "Visual Studio 17 2022" -A x64 -B "D:\out" -S "%GITHUB_WORKSPACE%" -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON > D:\cmake_configure.log 2>&1
+          set EXITCODE=%errorlevel%
+          echo === CMAKE EXIT CODE: %EXITCODE% ===
+          type D:\cmake_configure.log
+          exit /b %EXITCODE%
+
+      - name: Upload CMake log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmake-configure-log
+          path: D:\cmake_configure.log
+          retention-days: 7
 
       - name: Build
         shell: cmd
         run: |
           call "%VS_PATH%\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cmake --build "D:\out" --config Debug --parallel 2
+          cmake --build "D:\out" --config Debug --parallel 2 > D:\cmake_build.log 2>&1
+          set EXITCODE=%errorlevel%
+          echo === BUILD EXIT CODE: %EXITCODE% ===
+          type D:\cmake_build.log
+          exit /b %EXITCODE%
         timeout-minutes: 300
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmake-build-log
+          path: D:\cmake_build.log
+          retention-days: 7
 
       - name: Upload Artifact
         if: always()
