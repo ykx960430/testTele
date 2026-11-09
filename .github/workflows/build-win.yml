@@ -130,19 +130,22 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
-          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
+          cd /d %GITHUB_WORKSPACE%\..
           set Platform=x64
           set QT=6.11.2
-          python prepare.py silent qt6 2>&1 || exit /b %errorlevel%
+          python testTele/Telegram/build/prepare/prepare.py silent qt6 2>&1 || exit /b %errorlevel%
         timeout-minutes: 150
 
       - name: Verify Qt installed
         shell: cmd
         run: |
-          IF EXIST "%GITHUB_WORKSPACE%\Libraries\win64\Qt-6.11.2\Qt6Config.cmake" (
+          IF EXIST "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\Qt6Config.cmake" (
             ECHO Qt6Config.cmake FOUND
+          ) ELSE IF EXIST "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\Qt6Config.cmake" (
+            ECHO Qt6Config.cmake FOUND at root
           ) ELSE (
-            ECHO Qt6Config.cmake MISSING — rebuilding Qt stage
+            DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\" 2>NUL || ECHO Qt-6.11.2 folder MISSING
+            ECHO Qt6Config.cmake NOT found
             EXIT /B 1
           )
 
@@ -151,11 +154,12 @@ jobs:
         if: failure()
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
-          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
+          cd /d %GITHUB_WORKSPACE%\..
           set Platform=x64
           set QT=6.11.2
-          python prepare.py silent qt_6.11.2 2>&1 || exit /b %errorlevel%
-        timeout-minutes: 120
+          python testTele/Telegram/build/prepare/prepare.py silent qt_6.11.2 2>&1 || exit /b %errorlevel%
+          DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\" 2>NUL || ECHO Qt-6.11.2 folder not found
+        timeout-minutes: 180
 
       - name: Configure
         shell: cmd
