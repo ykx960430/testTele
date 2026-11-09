@@ -129,12 +129,15 @@ jobs:
       - name: Clean any cached build state
         shell: cmd
         run: |
-          REM prepare.py cache keys live in <dir>/cache_keys/<stage_name>
-          REM Check is: exists(<dir>/<stage_name>) AND matches cache -> skip
-          REM Force rebuild by removing BOTH outputs AND cache_keys
-          RMDIR /S /Q "%GITHUB_WORKSPACE%\Telegram\ThirdParty" 2>NUL || EXIT /B 0
-          RMDIR /S /Q "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries" 2>NUL || EXIT /B 0
-          DEL /Q /S "%GITHUB_WORKSPACE%\Telegram\build\prepare\cache_keys\*" 2>NUL || EXIT /B 0
+          REM prepare.py lives in Telegram/build/prepare/
+          REM Its outputs: Telegram/<build>/prepare/ThirdParty/* and Telegram/<build>/prepare/Libraries/win64/*
+          REM Cache keys: <output_dir>/cache_keys/<stage_name>
+          RMDIR /S /Q "%GITHUB_WORKSPACE%\Telegram\ThirdParty" 2>NUL & EXIT /B 0
+          RMDIR /S /Q "%GITHUB_WORKSPACE%\Telegram\build\prepare\ThirdParty" 2>NUL & EXIT /B 0
+          RMDIR /S /Q "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries" 2>NUL & EXIT /B 0
+          DEL /Q /S "%GITHUB_WORKSPACE%\Telegram\build\prepare\cache_keys\*" 2>NUL & EXIT /B 0
+          DEL /Q /S "%GITHUB_WORKSPACE%\Telegram\build\prepare\ThirdParty\cache_keys\*" 2>NUL & EXIT /B 0
+          DEL /Q /S "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\cache_keys\*" 2>NUL & EXIT /B 0
           ECHO Cleaned
         continue-on-error: true
 
