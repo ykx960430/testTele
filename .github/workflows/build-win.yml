@@ -141,6 +141,15 @@ jobs:
           find Telegram/build/prepare -name "cache_keys" -maxdepth 3 2>/dev/null || echo "No cache_keys dirs found"
           echo "Cleaned"
 
+      - name: Check prepare stages
+        shell: cmd
+        run: |
+          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
+          set Platform=x64
+          set QT=6.11.2
+          py -3 -u prepare.py print qt6 2>&1 || exit /b %errorlevel%
+        timeout-minutes: 10
+
       - name: Prepare ThirdParty
         shell: cmd
         run: |
@@ -148,7 +157,7 @@ jobs:
           cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
           set Platform=x64
           set QT=6.11.2
-          python -u prepare.py silent qt6 2>&1 || exit /b %errorlevel%
+          py -3 -u prepare.py silent qt6 2>&1 || exit /b %errorlevel%
         timeout-minutes: 150
 
       - name: Move libs to CMake-expected path
