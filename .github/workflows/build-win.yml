@@ -63,19 +63,31 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Force populate cmake submodule
+      - name: Force populate ALL submodules
         shell: bash
         run: |
-          # actions/checkout 子模块可能不完整，手动确保 cmake/ 有内容
-          if [ ! -f cmake/version.cmake ]; then
-            echo "cmake submodule empty, cloning..."
-            rm -rf cmake
-            git clone --depth 1 https://github.com/desktop-app/cmake_helpers.git cmake
-          fi
           # 清理 ghproxy 干扰
           git config --global --unset-all url.https://ghproxy.net/https://github.com/.insteadOf 2>/dev/null || true
-          ls cmake/ | head -5
-          echo "cmake submodule ready"
+
+          # 强制重新初始化所有子模块（actions/checkout 在这个大仓库上不稳定）
+          git submodule sync --recursive 2>&1 | tail -3
+          git submodule update --init --recursive --force 2>&1 | tail -10
+
+          # 验证 Telegram 关键子模块（CMakeLists.txt 依赖它们）
+          for sub in Telegram/lib_base Telegram/lib_ui Telegram/lib_tl Telegram/codegen \
+                     Telegram/lib_crl Telegram/lib_rpl Telegram/lib_spellcheck \
+                     Telegram/lib_storage Telegram/lib_lottie Telegram/lib_qr \
+                     Telegram/lib_translate Telegram/lib_webrtc Telegram/lib_webview \
+                     Telegram/lib_icu \
+                     Telegram/ThirdParty/cmark-gfm Telegram/ThirdParty/libcbor \
+                     Telegram/ThirdParty/libfido2 Telegram/ThirdParty/patches \
+                     cmake; do
+            if [ ! -f "$sub/CMakeLists.txt" ] && [ ! -f "$sub/version.cmake" ] && [ ! -f "$sub/.git" ] && [ ! -f "$sub/README.md" ]; then
+              echo "WARNING: $sub may be empty"
+            else
+              echo "OK: $sub"
+            fi
+          done
 
       - name: Patch prepare.py
         shell: python
