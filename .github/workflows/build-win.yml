@@ -117,106 +117,61 @@ jobs:
           clone_repo "Telegram/ThirdParty/lz4"       "https://github.com/lz4/lz4.git"                 ".git"
           clone_repo "Telegram/ThirdParty/patches"   "https://github.com/desktop-app/patches.git"     ".git"
 
-      - name: Patch prepare.py
-        shell: pwsh
-        run: |
-          $file = "Telegram/build/prepare/prepare.py"
-          $c = Get-Content $file -Raw
-          $c = $c.Replace(
-            "https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830.sfx.exe",
-            "https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe"
-          )
-          $c = $c.Replace("pacman -Syu --noconfirm ^`n        make ^", "pacman -S --noconfirm ^`n        make ^")
-          $c = $c -replace "        mingw-w64-x86_64-diffutils \^`n", ""
-          Set-Content $file $c -NoNewline
-          Write-Output "Patched"
+          for f in cmake/version.cmake Telegram/lib_base/CMakeLists.txt; do
+            [ -e "$f" ] && echo "OK  $f" || echo "WARN $f missing"
+          done
 
-      - name: Setup VS environment and Prepare ThirdParty
+      - name: Patch prepare.py
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          if errorlevel 1 exit /b %errorlevel%
+          powershell -Command "$c = Get-Content 'Telegram/build/prepare/prepare.py' -Raw; $c = $c.Replace('https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830.sfx.exe','https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe'); $c = $c.Replace(\"pacman -Syu --noconfirm ^\n        make ^\",\"pacman -S --noconfirm ^\n        make ^\"); $c = $c -replace 'mingw-w64-x86_64-diffutils \^\n',''; Set-Content 'Telegram/build/prepare/prepare.py' $c -NoNewline; Write-Output 'OK'"
+
+      - name: Setup VS environment
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
+
+      - name: Prepare ThirdParty
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
           cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
           set Platform=x64
           set QT=6.11.2
-          python -u prepare.py silent qt6 > D:\prep_out.log 2>&1
-          exit /b %errorlevel%
+          python prepare.py silent qt6 2>&1 || exit /b %errorlevel%
         timeout-minutes: 150
 
-      - name: Upload prep log
+      - name: Upload prep stdout
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: prep-log
-          path: D:\prep_out.log
-          retention-days: 7
-
-      - name: Print prep summary
-        shell: pwsh
+        shell: cmd
         run: |
-          if (Test-Path "D:\prep_out.log") {
-            $lines = Get-Content "D:\prep_out.log" -Tail 50
-            $lines | ForEach-Object { Write-Output $_ }
-          } else {
-            Write-Output "prep_out.log missing"
-          }
+          echo "Prep completed (exit was handled inline above)"
 
       - name: Configure
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          if errorlevel 1 exit /b %errorlevel%
-          cmake -G "Visual Studio 17 2022" -A x64 -B "D:\out" -S "%GITHUB_WORKSPACE%" -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON > D:\cmake_configure.log 2>&1
-          exit /b %errorlevel%
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
+          cmake -G "Visual Studio 17 2022" -A x64 -B "D:\out" -S "%GITHUB_WORKSPACE%" -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON 2>&1 || exit /b %errorlevel%
         timeout-minutes: 30
-
-      - name: Print configure log
-        shell: pwsh
-        run: |
-          if (Test-Path "D:\cmake_configure.log") {
-            Get-Content "D:\cmake_configure.log" -Tail 80 | ForEach-Object { Write-Output $_ }
-          }
 
       - name: Build
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          if errorlevel 1 exit /b %errorlevel%
-          cmake --build "D:\out" --config Debug --parallel 2 > D:\cmake_build.log 2>&1
-          exit /b %errorlevel%
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
+          cmake --build "D:\out" --config Debug --parallel 2 2>&1 || exit /b %errorlevel%
         timeout-minutes: 300
 
-      - name: Print build log tail
-        shell: pwsh
-        run: |
-          if (Test-Path "D:\cmake_build.log") {
-            Get-Content "D:\cmake_build.log" -Tail 80 | ForEach-Object { Write-Output $_ }
-          }
-
       - name: Verify build output
-        shell: pwsh
+        shell: cmd
         run: |
-          $exe = "D:\out\Debug\Telegram.exe"
-          if (Test-Path $exe) {
-            $i = Get-Item $exe
-            Write-Output "FOUND: $($i.Name) $([math]::Round($i.Length/1MB,1)) MB"
-          } else {
-            Write-Output "NOT FOUND: $exe"
-            if (Test-Path "D:\out\Debug") {
-              Get-ChildItem D:\out\Debug -File | Select-Object Name, @{N='Size';E={'{0:N0} KB' -f ($_.Length/1KB)}} | Format-Table -AutoSize
-            } else {
-              Write-Output "Debug folder does not exist"
-            }
-            exit 1
-          }
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: all-logs
-          path: D:\*.log
-          retention-days: 7
+          IF EXIST "D:\out\Debug\Telegram.exe" (
+            ECHO FOUND Telegram.exe
+            DIR "D:\out\Debug\Telegram.exe"
+          ) ELSE (
+            ECHO NOT FOUND Telegram.exe
+            DIR D:\out\Debug\ 2>NUL || ECHO Debug folder empty
+            EXIT /B 1
+          )
 
       - name: Upload Artifact
         if: success()
