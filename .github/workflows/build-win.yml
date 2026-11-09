@@ -126,6 +126,16 @@ jobs:
         run: |
           powershell -Command "$c = Get-Content 'Telegram/build/prepare/prepare.py' -Raw; $c = $c.Replace('https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830.sfx.exe','https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe'); $c = $c.Replace(\"pacman -Syu --noconfirm ^\n        make ^\",\"pacman -S --noconfirm ^\n        make ^\"); $c = $c -replace 'mingw-w64-x86_64-diffutils \^\n',''; Set-Content 'Telegram/build/prepare/prepare.py' $c -NoNewline; Write-Output 'OK'"
 
+      - name: Clean any cached build state
+        shell: cmd
+        run: |
+          DEL /S /Q "%GITHUB_WORKSPACE%\.cache_key_*" 2>NUL
+          DEL /S /Q "%GITHUB_WORKSPACE%\Telegram\build\prepare\.cache_key_*" 2>NUL
+          DEL /S /Q "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\.cache_key_*" 2>NUL
+          RMDIR /S /Q "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries" 2>NUL
+          RMDIR /S /Q "%GITHUB_WORKSPACE%\Telegram\ThirdParty" 2>NUL
+          ECHO Cleaned
+
       - name: Prepare ThirdParty
         shell: cmd
         run: |
@@ -133,7 +143,7 @@ jobs:
           cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
           set Platform=x64
           set QT=6.11.2
-          python prepare.py silent qt6 2>&1 || exit /b %errorlevel%
+          python -u prepare.py silent qt6 2>&1 || exit /b %errorlevel%
         timeout-minutes: 150
 
       - name: Move libs to CMake-expected path
@@ -169,7 +179,7 @@ jobs:
           cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
           set Platform=x64
           set QT=6.11.2
-          python prepare.py silent qt_6.11.2 2>&1 || exit /b %errorlevel%
+          python -u prepare.py silent qt_6.11.2 2>&1 || exit /b %errorlevel%
           mkdir "%GITHUB_WORKSPACE%\..\Libraries\win64" 2>NUL
           xcopy /E /I /Y "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\Qt-6.11.2\*" "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\" 2>NUL
           DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\" 2>NUL || ECHO Qt-6.11.2 folder not found
