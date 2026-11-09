@@ -63,6 +63,20 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Force populate cmake submodule
+        shell: bash
+        run: |
+          # actions/checkout 子模块可能不完整，手动确保 cmake/ 有内容
+          if [ ! -f cmake/version.cmake ]; then
+            echo "cmake submodule empty, cloning..."
+            rm -rf cmake
+            git clone --depth 1 https://github.com/desktop-app/cmake_helpers.git cmake
+          fi
+          # 清理 ghproxy 干扰
+          git config --global --unset-all url.https://ghproxy.net/https://github.com/.insteadOf 2>/dev/null || true
+          ls cmake/ | head -5
+          echo "cmake submodule ready"
+
       - name: Patch prepare.py
         shell: python
         run: |
