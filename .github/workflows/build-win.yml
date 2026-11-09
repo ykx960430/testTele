@@ -148,12 +148,16 @@ jobs:
         shell: cmd
         run: |
           IF EXIST "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\Qt6Config.cmake" (
-            ECHO Qt6Config.cmake FOUND
-          ) ELSE IF EXIST "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\Qt6Config.cmake" (
-            ECHO Qt6Config.cmake FOUND at root
+            ECHO Qt6Config.cmake FOUND at parent/Libraries
+          ) ELSE IF EXIST "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\Qt6Config.cmake" (
+            ECHO Qt6Config.cmake FOUND at Telegram/build/prepare/Libraries
           ) ELSE (
-            DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\" 2>NUL || ECHO Qt-6.11.2 folder MISSING
-            ECHO Qt6Config.cmake NOT found
+            ECHO Qt6Config.cmake NOT found in expected locations.
+            ECHO Searching for Qt6Config.cmake anywhere...
+            DIR /S /B D:\Qt6Config.cmake 2>NUL
+            DIR /S /B %GITHUB_WORKSPACE%\Qt6Config.cmake 2>NUL
+            ECHO === Check prepare libs content ===
+            DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\" 2>NUL
             EXIT /B 1
           )
 
