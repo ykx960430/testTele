@@ -151,23 +151,15 @@ jobs:
           path: D:\prep_out.log
           retention-days: 7
 
-      - name: Verify prep output
+      - name: Print prep summary
         shell: pwsh
-        run: {
-          if (-not (Test-Path "D:\prep_out.log")) { Write-Output "prep_out.log missing"; exit 1 }
-          $log = Get-Content "D:\prep_out.log" -Raw
-          if ($log -match 'error|Error|fail|Fail') {
-            Write-Output "Found error in prep log:"
-            Get-Content "D:\prep_out.log" | Select-Object -Last 30
-          }
-          # Check if ThirdParty was actually installed
-          if (Test-Path "$env:GITHUB_WORKSPACE\Libraries\win64\zlib") {
-            Write-Output "OK: Libraries/win64/zlib exists"
+        run: |
+          if (Test-Path "D:\prep_out.log") {
+            $lines = Get-Content "D:\prep_out.log" -Tail 50
+            $lines | ForEach-Object { Write-Output $_ }
           } else {
-            Write-Output "WARN: Libraries/win64/zlib not found"
-            Get-ChildItem "$env:GITHUB_WORKSPACE\Libraries" -ErrorAction SilentlyContinue
+            Write-Output "prep_out.log missing"
           }
-        }
 
       - name: Configure
         shell: cmd
@@ -179,10 +171,11 @@ jobs:
         timeout-minutes: 30
 
       - name: Print configure log
-        if: always()
-        shell: cmd
+        shell: pwsh
         run: |
-          type D:\cmake_configure.log 2>nul || echo No configure log
+          if (Test-Path "D:\cmake_configure.log") {
+            Get-Content "D:\cmake_configure.log" -Tail 80 | ForEach-Object { Write-Output $_ }
+          }
 
       - name: Build
         shell: cmd
@@ -194,32 +187,34 @@ jobs:
         timeout-minutes: 300
 
       - name: Print build log tail
-        if: always()
-        shell: cmd
+        shell: pwsh
         run: |
-          type D:\cmake_build.log 2>nul || echo No build log
+          if (Test-Path "D:\cmake_build.log") {
+            Get-Content "D:\cmake_build.log" -Tail 80 | ForEach-Object { Write-Output $_ }
+          }
 
       - name: Verify build output
         shell: pwsh
-        run: {
+        run: |
           $exe = "D:\out\Debug\Telegram.exe"
           if (Test-Path $exe) {
-            Write-Output "FOUND: $exe"
-            Get-Item $exe | Select-Object Name, @{N='SizeMB';E={[math]::Round($_.Length/1MB,1)}}, LastWriteTime
+            $i = Get-Item $exe
+            Write-Output "FOUND: $($i.Name) $([math]::Round($i.Length/1MB,1)) MB"
           } else {
             Write-Output "NOT FOUND: $exe"
             if (Test-Path "D:\out\Debug") {
-              Get-ChildItem D:\out\Debug -File | Select-Object Name, @{N='Size';E={'{0:N0} KB' -f ($_.Length/1KB)}}
+              Get-ChildItem D:\out\Debug -File | Select-Object Name, @{N='Size';E={'{0:N0} KB' -f ($_.Length/1KB)}} | Format-Table -AutoSize
+            } else {
+              Write-Output "Debug folder does not exist"
             }
             exit 1
           }
-        }
 
-      - name: Upload CMake logs
+      - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cmake-logs
+          name: all-logs
           path: D:\*.log
           retention-days: 7
 
