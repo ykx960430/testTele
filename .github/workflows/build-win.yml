@@ -130,11 +130,19 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
-          cd /d %GITHUB_WORKSPACE%\..
+          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
           set Platform=x64
           set QT=6.11.2
-          python testTele/Telegram/build/prepare/prepare.py silent qt6 2>&1 || exit /b %errorlevel%
+          python prepare.py silent qt6 2>&1 || exit /b %errorlevel%
         timeout-minutes: 150
+
+      - name: Move libs to CMake-expected path
+        shell: cmd
+        run: |
+          mkdir "%GITHUB_WORKSPACE%\..\Libraries\win64" 2>NUL
+          xcopy /E /I /Y "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\*" "%GITHUB_WORKSPACE%\..\Libraries\win64\" 2>NUL
+          DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\" 2>NUL
+        continue-on-error: true
 
       - name: Verify Qt installed
         shell: cmd
@@ -154,10 +162,12 @@ jobs:
         if: failure()
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
-          cd /d %GITHUB_WORKSPACE%\..
+          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
           set Platform=x64
           set QT=6.11.2
-          python testTele/Telegram/build/prepare/prepare.py silent qt_6.11.2 2>&1 || exit /b %errorlevel%
+          python prepare.py silent qt_6.11.2 2>&1 || exit /b %errorlevel%
+          mkdir "%GITHUB_WORKSPACE%\..\Libraries\win64" 2>NUL
+          xcopy /E /I /Y "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\Qt-6.11.2\*" "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\" 2>NUL
           DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\" 2>NUL || ECHO Qt-6.11.2 folder not found
         timeout-minutes: 180
 
