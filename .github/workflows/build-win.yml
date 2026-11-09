@@ -129,12 +129,13 @@ jobs:
       - name: Clean any cached build state
         shell: cmd
         run: |
-          DEL /S /Q "%GITHUB_WORKSPACE%\.cache_key_*" 2>NUL
-          DEL /S /Q "%GITHUB_WORKSPACE%\Telegram\build\prepare\.cache_key_*" 2>NUL
-          DEL /S /Q "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\.cache_key_*" 2>NUL
-          RMDIR /S /Q "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries" 2>NUL
-          RMDIR /S /Q "%GITHUB_WORKSPACE%\Telegram\ThirdParty" 2>NUL
+          DEL /S /Q "%GITHUB_WORKSPACE%\.cache_key_*" 2>NUL || EXIT /B 0
+          DEL /S /Q "%GITHUB_WORKSPACE%\Telegram\build\prepare\.cache_key_*" 2>NUL || EXIT /B 0
+          DEL /S /Q "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\.cache_key_*" 2>NUL || EXIT /B 0
+          RMDIR /S /Q "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries" 2>NUL || EXIT /B 0
+          RMDIR /S /Q "%GITHUB_WORKSPACE%\Telegram\ThirdParty" 2>NUL || EXIT /B 0
           ECHO Cleaned
+        continue-on-error: true
 
       - name: Prepare ThirdParty
         shell: cmd
