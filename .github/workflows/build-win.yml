@@ -174,9 +174,8 @@ jobs:
           set Platform=x64
           set QT=6.11.2
           python -u prepare.py silent qt6 > D:\prep_out.log 2>&1
-          echo PREPARE_EXIT_CODE=%%errorlevel%%
           type D:\prep_out.log
-          exit /b %%errorlevel%%
+          if %%errorlevel%% neq 0 exit /b %%errorlevel%%
         timeout-minutes: 150
 
       - name: Upload prep log
@@ -187,18 +186,36 @@ jobs:
           path: D:\prep_out.log
           retention-days: 7
 
-      - name: Configure + Build
+      - name: Configure
         shell: cmd
         run: |
           call "%%VS_PATH%%\VC\Auxiliary\Build\vcvarsall.bat" x64
           cmake -G "Visual Studio 17 2022" -A x64 -B "D:\out" -S "%%GITHUB_WORKSPACE%%" -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON > D:\cmake_configure.log 2>&1
-          echo CMAKE_EXIT_CODE=%%errorlevel%%
           type D:\cmake_configure.log
+          if %%errorlevel%% neq 0 exit /b %%errorlevel%%
+        timeout-minutes: 30
+
+      - name: Build
+        shell: cmd
+        run: |
+          call "%%VS_PATH%%\VC\Auxiliary\Build\vcvarsall.bat" x64
           cmake --build "D:\out" --config Debug --parallel 2 > D:\cmake_build.log 2>&1
-          echo BUILD_EXIT_CODE=%%errorlevel%%
           type D:\cmake_build.log
-          exit /b %%errorlevel%%
+          if %%errorlevel%% neq 0 exit /b %%errorlevel%%
         timeout-minutes: 300
+
+      - name: Verify build output
+        shell: cmd
+        run: |
+          if exist "D:\out\Debug\Telegram.exe" (
+            echo FOUND: Telegram.exe
+            dir "D:\out\Debug\Telegram.exe"
+          ) else (
+            echo NOT FOUND: D:\out\Debug\Telegram.exe
+            dir D:\out\Debug\ || echo Debug folder empty
+            dir D:\out\     || echo out folder empty
+            exit /b 1
+          )
 
       - name: Upload CMake log
         if: always()
@@ -213,5 +230,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Telegram-Windows-Debug
-          path: D:\out\Debug\*
+          path: D:\out\Debug\Telegram.exe
           retention-days: 14
