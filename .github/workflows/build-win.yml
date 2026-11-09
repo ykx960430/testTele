@@ -140,26 +140,34 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
-          cmake -G "Ninja Multi-Config" -B "D:\out" -S "%GITHUB_WORKSPACE%" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl 2>&1 || exit /b %errorlevel%
+          cmake -G "Ninja Multi-Config" -B "D:\out" -S "%GITHUB_WORKSPACE%" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+          IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
         timeout-minutes: 30
 
-      - name: Inspect build dir
+      - name: Verify build system generated
         shell: cmd
         run: |
           DIR D:\out\
+          IF NOT EXIST D:\out\build.ninja (
+            ECHO build.ninja NOT generated
+            EXIT /B 1
+          )
+          ECHO build.ninja EXISTS
 
       - name: Build
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
-          cmake --build "D:\out" --config Debug --parallel 2 2>&1 || exit /b %errorlevel%
+          cmake --build "D:\out" --config Debug --parallel 2
+          IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
         timeout-minutes: 300
 
-      - name: Inspect output
+      - name: Inspect build dir after build
         shell: cmd
         run: |
           DIR D:\out\
           DIR D:\out\Debug\ 2>NUL || ECHO No Debug folder
+        continue-on-error: true
 
       - name: Verify build output
         shell: cmd
