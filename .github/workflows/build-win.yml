@@ -136,6 +136,27 @@ jobs:
           python prepare.py silent qt6 2>&1 || exit /b %errorlevel%
         timeout-minutes: 150
 
+      - name: Verify Qt installed
+        shell: cmd
+        run: |
+          IF EXIST "%GITHUB_WORKSPACE%\Libraries\win64\Qt-6.11.2\Qt6Config.cmake" (
+            ECHO Qt6Config.cmake FOUND
+          ) ELSE (
+            ECHO Qt6Config.cmake MISSING — rebuilding Qt stage
+            EXIT /B 1
+          )
+
+      - name: Rebuild Qt stage if missing
+        shell: cmd
+        if: failure()
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
+          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
+          set Platform=x64
+          set QT=6.11.2
+          python prepare.py silent qt_6.11.2 2>&1 || exit /b %errorlevel%
+        timeout-minutes: 120
+
       - name: Configure
         shell: cmd
         run: |
