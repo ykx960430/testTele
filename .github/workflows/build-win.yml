@@ -7,8 +7,8 @@ on:
 
 env:
   VS_PATH: 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise'
-  QT: '6.11.2'
   Platform: x64
+  QT: '6.11.2'
 
 jobs:
   preflight:
@@ -24,47 +24,40 @@ jobs:
         run: |
           set -e
           cd "$GITHUB_WORKSPACE"
-
           git config --global --unset-all url.https://ghproxy.net/https://github.com/.insteadOf 2>/dev/null || true
 
-          clone_if_missing() {
-            local path="$1" url="$2" marker="$3"
-            marker="${marker:-CMakeLists.txt}"
+          clone_repo() {
+            local path="$1" url="$2" marker="${3:-CMakeLists.txt}"
             if [ ! -f "$path/$marker" ]; then
               rm -rf "$path"
-              echo "Cloning $url -> $path"
+              echo "Clone: $url -> $path"
               git clone --depth 1 "$url" "$path"
-            else
-              echo "Already exists: $path"
             fi
           }
 
           mkdir -p Telegram/ThirdParty
-
-          clone_if_missing "cmake" "https://github.com/desktop-app/cmake_helpers.git" "version.cmake"
-
-          clone_if_missing "Telegram/lib_crl"        "https://github.com/desktop-app/lib_crl.git"
-          clone_if_missing "Telegram/lib_rpl"        "https://github.com/desktop-app/lib_rpl.git"
-          clone_if_missing "Telegram/lib_base"       "https://github.com/desktop-app/lib_base.git"
-          clone_if_missing "Telegram/lib_ui"         "https://github.com/AyuGram/lib_ui.git"
-          clone_if_missing "Telegram/lib_tl"         "https://github.com/AyuGram/lib_tl.git"
-          clone_if_missing "Telegram/lib_spellcheck" "https://github.com/desktop-app/lib_spellcheck.git"
-          clone_if_missing "Telegram/lib_storage"    "https://github.com/desktop-app/lib_storage.git"
-          clone_if_missing "Telegram/lib_lottie"     "https://github.com/desktop-app/lib_lottie.git"
-          clone_if_missing "Telegram/lib_qr"         "https://github.com/desktop-app/lib_qr.git"
-          clone_if_missing "Telegram/lib_translate"  "https://github.com/desktop-app/lib_translate.git"
-          clone_if_missing "Telegram/lib_webrtc"     "https://github.com/desktop-app/lib_webrtc.git"
-          clone_if_missing "Telegram/lib_webview"    "https://github.com/desktop-app/lib_webview.git"
-          clone_if_missing "Telegram/lib_icu"        "https://github.com/AyuGram/lib_icu.git"
-          clone_if_missing "Telegram/codegen"        "https://github.com/AyuGram/codegen.git"
-
-          clone_if_missing "Telegram/ThirdParty/cmark-gfm" "https://github.com/desktop-app/cmark-gfm.git" ".git"
-          clone_if_missing "Telegram/ThirdParty/libcbor"   "https://github.com/PJK/libcbor.git"            ".git"
-          clone_if_missing "Telegram/ThirdParty/libfido2"  "https://github.com/Yubico/libfido2.git"         ".git"
-          clone_if_missing "Telegram/ThirdParty/GSL"       "https://github.com/Microsoft/GSL.git"           ".git"
-          clone_if_missing "Telegram/ThirdParty/xxHash"    "https://github.com/Cyan4973/xxHash.git"        ".git"
-          clone_if_missing "Telegram/ThirdParty/lz4"       "https://github.com/lz4/lz4.git"                 ".git"
-          clone_if_missing "Telegram/ThirdParty/patches"   "https://github.com/desktop-app/patches.git"     ".git"
+          clone_repo "cmake" "https://github.com/desktop-app/cmake_helpers.git" "version.cmake"
+          clone_repo "Telegram/lib_crl"        "https://github.com/desktop-app/lib_crl.git"
+          clone_repo "Telegram/lib_rpl"        "https://github.com/desktop-app/lib_rpl.git"
+          clone_repo "Telegram/lib_base"       "https://github.com/desktop-app/lib_base.git"
+          clone_repo "Telegram/lib_ui"         "https://github.com/AyuGram/lib_ui.git"
+          clone_repo "Telegram/lib_tl"         "https://github.com/AyuGram/lib_tl.git"
+          clone_repo "Telegram/lib_spellcheck" "https://github.com/desktop-app/lib_spellcheck.git"
+          clone_repo "Telegram/lib_storage"    "https://github.com/desktop-app/lib_storage.git"
+          clone_repo "Telegram/lib_lottie"     "https://github.com/desktop-app/lib_lottie.git"
+          clone_repo "Telegram/lib_qr"         "https://github.com/desktop-app/lib_qr.git"
+          clone_repo "Telegram/lib_translate"  "https://github.com/desktop-app/lib_translate.git"
+          clone_repo "Telegram/lib_webrtc"     "https://github.com/desktop-app/lib_webrtc.git"
+          clone_repo "Telegram/lib_webview"    "https://github.com/desktop-app/lib_webview.git"
+          clone_repo "Telegram/lib_icu"        "https://github.com/AyuGram/lib_icu.git"
+          clone_repo "Telegram/codegen"        "https://github.com/AyuGram/codegen.git"
+          clone_repo "Telegram/ThirdParty/cmark-gfm" "https://github.com/desktop-app/cmark-gfm.git" ".git"
+          clone_repo "Telegram/ThirdParty/libcbor"   "https://github.com/PJK/libcbor.git"            ".git"
+          clone_repo "Telegram/ThirdParty/libfido2"  "https://github.com/Yubico/libfido2.git"         ".git"
+          clone_repo "Telegram/ThirdParty/GSL"       "https://github.com/Microsoft/GSL.git"           ".git"
+          clone_repo "Telegram/ThirdParty/xxHash"    "https://github.com/Cyan4973/xxHash.git"        ".git"
+          clone_repo "Telegram/ThirdParty/lz4"       "https://github.com/lz4/lz4.git"                 ".git"
+          clone_repo "Telegram/ThirdParty/patches"   "https://github.com/desktop-app/patches.git"     ".git"
 
           errors=0
           for f in \
@@ -72,19 +65,9 @@ jobs:
             Telegram/lib_base/CMakeLists.txt Telegram/lib_ui/CMakeLists.txt \
             Telegram/lib_tl/CMakeLists.txt Telegram/codegen/CMakeLists.txt \
             Telegram/ThirdParty/cmark-gfm/.git Telegram/ThirdParty/libcbor/.git; do
-            if [ -e "$f" ]; then
-              echo "OK: $f"
-            else
-              echo "FAIL: $f"
-              errors=$((errors+1))
-            fi
+            [ -e "$f" ] && echo "OK  $f" || { echo "FAIL $f"; errors=$((errors+1)); }
           done
-
-          if [ "$errors" -gt 0 ]; then
-            echo "Preflight FAILED: $errors missing submodule(s)"
-            exit 1
-          fi
-          echo "Preflight PASSED"
+          [ "$errors" -eq 0 ] && echo "Preflight PASSED" || { echo "Preflight FAILED"; exit 1; }
 
   build:
     needs: preflight
@@ -101,81 +84,63 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           git config --global --unset-all url.https://ghproxy.net/https://github.com/.insteadOf 2>/dev/null || true
 
-          clone_if_missing() {
-            local path="$1" url="$2" marker="$3"
-            marker="${marker:-CMakeLists.txt}"
+          clone_repo() {
+            local path="$1" url="$2" marker="${3:-CMakeLists.txt}"
             if [ ! -f "$path/$marker" ]; then
               rm -rf "$path"
-              echo "Cloning $url -> $path"
+              echo "Clone: $url -> $path"
               git clone --depth 1 "$url" "$path"
-            else
-              echo "Already exists: $path"
             fi
           }
 
           mkdir -p Telegram/ThirdParty
-
-          clone_if_missing "cmake" "https://github.com/desktop-app/cmake_helpers.git" "version.cmake"
-
-          clone_if_missing "Telegram/lib_crl"        "https://github.com/desktop-app/lib_crl.git"
-          clone_if_missing "Telegram/lib_rpl"        "https://github.com/desktop-app/lib_rpl.git"
-          clone_if_missing "Telegram/lib_base"       "https://github.com/desktop-app/lib_base.git"
-          clone_if_missing "Telegram/lib_ui"         "https://github.com/AyuGram/lib_ui.git"
-          clone_if_missing "Telegram/lib_tl"         "https://github.com/AyuGram/lib_tl.git"
-          clone_if_missing "Telegram/lib_spellcheck" "https://github.com/desktop-app/lib_spellcheck.git"
-          clone_if_missing "Telegram/lib_storage"    "https://github.com/desktop-app/lib_storage.git"
-          clone_if_missing "Telegram/lib_lottie"     "https://github.com/desktop-app/lib_lottie.git"
-          clone_if_missing "Telegram/lib_qr"         "https://github.com/desktop-app/lib_qr.git"
-          clone_if_missing "Telegram/lib_translate"  "https://github.com/desktop-app/lib_translate.git"
-          clone_if_missing "Telegram/lib_webrtc"     "https://github.com/desktop-app/lib_webrtc.git"
-          clone_if_missing "Telegram/lib_webview"    "https://github.com/desktop-app/lib_webview.git"
-          clone_if_missing "Telegram/lib_icu"        "https://github.com/AyuGram/lib_icu.git"
-          clone_if_missing "Telegram/codegen"        "https://github.com/AyuGram/codegen.git"
-
-          clone_if_missing "Telegram/ThirdParty/cmark-gfm" "https://github.com/desktop-app/cmark-gfm.git" ".git"
-          clone_if_missing "Telegram/ThirdParty/libcbor"   "https://github.com/PJK/libcbor.git"            ".git"
-          clone_if_missing "Telegram/ThirdParty/libfido2"  "https://github.com/Yubico/libfido2.git"         ".git"
-          clone_if_missing "Telegram/ThirdParty/GSL"       "https://github.com/Microsoft/GSL.git"           ".git"
-          clone_if_missing "Telegram/ThirdParty/xxHash"    "https://github.com/Cyan4973/xxHash.git"        ".git"
-          clone_if_missing "Telegram/ThirdParty/lz4"       "https://github.com/lz4/lz4.git"                 ".git"
-          clone_if_missing "Telegram/ThirdParty/patches"   "https://github.com/desktop-app/patches.git"     ".git"
-
-          # Quick sanity check — don't fail here, just warn
-          for f in cmake/version.cmake Telegram/lib_base/CMakeLists.txt; do
-            [ -e "$f" ] && echo "OK: $f" || echo "WARN: $f missing"
-          done
+          clone_repo "cmake" "https://github.com/desktop-app/cmake_helpers.git" "version.cmake"
+          clone_repo "Telegram/lib_crl"        "https://github.com/desktop-app/lib_crl.git"
+          clone_repo "Telegram/lib_rpl"        "https://github.com/desktop-app/lib_rpl.git"
+          clone_repo "Telegram/lib_base"       "https://github.com/desktop-app/lib_base.git"
+          clone_repo "Telegram/lib_ui"         "https://github.com/AyuGram/lib_ui.git"
+          clone_repo "Telegram/lib_tl"         "https://github.com/AyuGram/lib_tl.git"
+          clone_repo "Telegram/lib_spellcheck" "https://github.com/desktop-app/lib_spellcheck.git"
+          clone_repo "Telegram/lib_storage"    "https://github.com/desktop-app/lib_storage.git"
+          clone_repo "Telegram/lib_lottie"     "https://github.com/desktop-app/lib_lottie.git"
+          clone_repo "Telegram/lib_qr"         "https://github.com/desktop-app/lib_qr.git"
+          clone_repo "Telegram/lib_translate"  "https://github.com/desktop-app/lib_translate.git"
+          clone_repo "Telegram/lib_webrtc"     "https://github.com/desktop-app/lib_webrtc.git"
+          clone_repo "Telegram/lib_webview"    "https://github.com/desktop-app/lib_webview.git"
+          clone_repo "Telegram/lib_icu"        "https://github.com/AyuGram/lib_icu.git"
+          clone_repo "Telegram/codegen"        "https://github.com/AyuGram/codegen.git"
+          clone_repo "Telegram/ThirdParty/cmark-gfm" "https://github.com/desktop-app/cmark-gfm.git" ".git"
+          clone_repo "Telegram/ThirdParty/libcbor"   "https://github.com/PJK/libcbor.git"            ".git"
+          clone_repo "Telegram/ThirdParty/libfido2"  "https://github.com/Yubico/libfido2.git"         ".git"
+          clone_repo "Telegram/ThirdParty/GSL"       "https://github.com/Microsoft/GSL.git"           ".git"
+          clone_repo "Telegram/ThirdParty/xxHash"    "https://github.com/Cyan4973/xxHash.git"        ".git"
+          clone_repo "Telegram/ThirdParty/lz4"       "https://github.com/lz4/lz4.git"                 ".git"
+          clone_repo "Telegram/ThirdParty/patches"   "https://github.com/desktop-app/patches.git"     ".git"
 
       - name: Patch prepare.py
-        shell: python
+        shell: pwsh
         run: |
-          import pathlib
-          f = pathlib.Path("Telegram/build/prepare/prepare.py")
-          content = f.read_text(encoding="utf-8")
-          content = content.replace(
-              "https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830.sfx.exe",
-              "https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe"
+          $file = "Telegram/build/prepare/prepare.py"
+          $c = Get-Content $file -Raw
+          $c = $c.Replace(
+            "https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830.sfx.exe",
+            "https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe"
           )
-          content = content.replace(
-              "pacman -Syu --noconfirm ^\n        make ^",
-              "pacman -S --noconfirm ^\n        make ^"
-          )
-          content = content.replace(
-              "        mingw-w64-x86_64-diffutils ^\n",
-              ""
-          )
-          f.write_text(content, encoding="utf-8")
-          print("Patched prepare.py")
+          $c = $c.Replace("pacman -Syu --noconfirm ^`n        make ^", "pacman -S --noconfirm ^`n        make ^")
+          $c = $c -replace "        mingw-w64-x86_64-diffutils \^`n", ""
+          Set-Content $file $c -NoNewline
+          Write-Output "Patched"
 
-      - name: Prepare ThirdParty
+      - name: Setup VS environment and Prepare ThirdParty
         shell: cmd
         run: |
-          call "%%VS_PATH%%\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cd /d %%GITHUB_WORKSPACE%%\Telegram\build\prepare
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          if errorlevel 1 exit /b %errorlevel%
+          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
           set Platform=x64
           set QT=6.11.2
           python -u prepare.py silent qt6 > D:\prep_out.log 2>&1
-          type D:\prep_out.log
-          if %%errorlevel%% neq 0 exit /b %%errorlevel%%
+          exit /b %errorlevel%
         timeout-minutes: 150
 
       - name: Upload prep log
@@ -186,43 +151,76 @@ jobs:
           path: D:\prep_out.log
           retention-days: 7
 
+      - name: Verify prep output
+        shell: pwsh
+        run: {
+          if (-not (Test-Path "D:\prep_out.log")) { Write-Output "prep_out.log missing"; exit 1 }
+          $log = Get-Content "D:\prep_out.log" -Raw
+          if ($log -match 'error|Error|fail|Fail') {
+            Write-Output "Found error in prep log:"
+            Get-Content "D:\prep_out.log" | Select-Object -Last 30
+          }
+          # Check if ThirdParty was actually installed
+          if (Test-Path "$env:GITHUB_WORKSPACE\Libraries\win64\zlib") {
+            Write-Output "OK: Libraries/win64/zlib exists"
+          } else {
+            Write-Output "WARN: Libraries/win64/zlib not found"
+            Get-ChildItem "$env:GITHUB_WORKSPACE\Libraries" -ErrorAction SilentlyContinue
+          }
+        }
+
       - name: Configure
         shell: cmd
         run: |
-          call "%%VS_PATH%%\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cmake -G "Visual Studio 17 2022" -A x64 -B "D:\out" -S "%%GITHUB_WORKSPACE%%" -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON > D:\cmake_configure.log 2>&1
-          type D:\cmake_configure.log
-          if %%errorlevel%% neq 0 exit /b %%errorlevel%%
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          if errorlevel 1 exit /b %errorlevel%
+          cmake -G "Visual Studio 17 2022" -A x64 -B "D:\out" -S "%GITHUB_WORKSPACE%" -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON > D:\cmake_configure.log 2>&1
+          exit /b %errorlevel%
         timeout-minutes: 30
+
+      - name: Print configure log
+        if: always()
+        shell: cmd
+        run: |
+          type D:\cmake_configure.log 2>nul || echo No configure log
 
       - name: Build
         shell: cmd
         run: |
-          call "%%VS_PATH%%\VC\Auxiliary\Build\vcvarsall.bat" x64
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          if errorlevel 1 exit /b %errorlevel%
           cmake --build "D:\out" --config Debug --parallel 2 > D:\cmake_build.log 2>&1
-          type D:\cmake_build.log
-          if %%errorlevel%% neq 0 exit /b %%errorlevel%%
+          exit /b %errorlevel%
         timeout-minutes: 300
 
-      - name: Verify build output
+      - name: Print build log tail
+        if: always()
         shell: cmd
         run: |
-          if exist "D:\out\Debug\Telegram.exe" (
-            echo FOUND: Telegram.exe
-            dir "D:\out\Debug\Telegram.exe"
-          ) else (
-            echo NOT FOUND: D:\out\Debug\Telegram.exe
-            dir D:\out\Debug\ || echo Debug folder empty
-            dir D:\out\     || echo out folder empty
-            exit /b 1
-          )
+          type D:\cmake_build.log 2>nul || echo No build log
 
-      - name: Upload CMake log
+      - name: Verify build output
+        shell: pwsh
+        run: {
+          $exe = "D:\out\Debug\Telegram.exe"
+          if (Test-Path $exe) {
+            Write-Output "FOUND: $exe"
+            Get-Item $exe | Select-Object Name, @{N='SizeMB';E={[math]::Round($_.Length/1MB,1)}}, LastWriteTime
+          } else {
+            Write-Output "NOT FOUND: $exe"
+            if (Test-Path "D:\out\Debug") {
+              Get-ChildItem D:\out\Debug -File | Select-Object Name, @{N='Size';E={'{0:N0} KB' -f ($_.Length/1KB)}}
+            }
+            exit 1
+          }
+        }
+
+      - name: Upload CMake logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cmake-logs
-          path: D:\cmake_*.log
+          path: D:\*.log
           retention-days: 7
 
       - name: Upload Artifact
