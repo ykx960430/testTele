@@ -11,48 +11,80 @@ env:
   Platform: x64
 
 jobs:
-  # 快速预检查：秒级发现问题，不要等 2 小时的 prepare 做完才发现子模块缺失
   preflight:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: none
           fetch-depth: 0
 
-      - name: Verify critical submodules
+      - name: Clone submodules
         shell: bash
         run: |
-          # 清理 ghproxy 干扰（GitHub Actions runner 可能有全局 gitconfig）
-          if git config --global --get url.https://ghproxy.net/https://github.com/.insteadOf 2>/dev/null; then
-            echo "Removing ghproxy redirect..."
-            git config --global --unset url.https://ghproxy.net/https://github.com/.insteadOf
-          fi
+          set -e
+          cd "$GITHUB_WORKSPACE"
 
-          # 强制初始化所有子模块
-          git submodule sync --recursive
-          git submodule update --init --recursive --force 2>&1 | tail -5
+          git config --global --unset-all url.https://ghproxy.net/https://github.com/.insteadOf 2>/dev/null || true
 
-          # 验证关键子模块（CMakeLists.txt 依赖它们）
-          for sub in cmake; do
-            if [ ! -f "$sub/version.cmake" ]; then
-              echo "ERROR: $sub submodule is empty! Trying manual clone..."
-              rm -rf "$sub"
-              git clone --depth 1 "https://github.com/desktop-app/cmake_helpers.git" "$sub"
+          clone_if_missing() {
+            local path="$1" url="$2" marker="$3"
+            marker="${marker:-CMakeLists.txt}"
+            if [ ! -f "$path/$marker" ]; then
+              rm -rf "$path"
+              echo "Cloning $url -> $path"
+              git clone --depth 1 "$url" "$path"
+            else
+              echo "Already exists: $path"
             fi
-          done
+          }
 
-          # 快速验证：cmake include 文件是否存在
-          echo "=== Checking cmake includes ==="
-          for f in cmake/version.cmake cmake/validate_special_target.cmake cmake/init_target.cmake; do
-            if [ -f "$f" ]; then
+          mkdir -p Telegram/ThirdParty
+
+          clone_if_missing "cmake" "https://github.com/desktop-app/cmake_helpers.git" "version.cmake"
+
+          clone_if_missing "Telegram/lib_crl"        "https://github.com/desktop-app/lib_crl.git"
+          clone_if_missing "Telegram/lib_rpl"        "https://github.com/desktop-app/lib_rpl.git"
+          clone_if_missing "Telegram/lib_base"       "https://github.com/desktop-app/lib_base.git"
+          clone_if_missing "Telegram/lib_ui"         "https://github.com/AyuGram/lib_ui.git"
+          clone_if_missing "Telegram/lib_tl"         "https://github.com/AyuGram/lib_tl.git"
+          clone_if_missing "Telegram/lib_spellcheck" "https://github.com/desktop-app/lib_spellcheck.git"
+          clone_if_missing "Telegram/lib_storage"    "https://github.com/desktop-app/lib_storage.git"
+          clone_if_missing "Telegram/lib_lottie"     "https://github.com/desktop-app/lib_lottie.git"
+          clone_if_missing "Telegram/lib_qr"         "https://github.com/desktop-app/lib_qr.git"
+          clone_if_missing "Telegram/lib_translate"  "https://github.com/desktop-app/lib_translate.git"
+          clone_if_missing "Telegram/lib_webrtc"     "https://github.com/desktop-app/lib_webrtc.git"
+          clone_if_missing "Telegram/lib_webview"    "https://github.com/desktop-app/lib_webview.git"
+          clone_if_missing "Telegram/lib_icu"        "https://github.com/AyuGram/lib_icu.git"
+          clone_if_missing "Telegram/codegen"        "https://github.com/AyuGram/codegen.git"
+
+          clone_if_missing "Telegram/ThirdParty/cmark-gfm" "https://github.com/desktop-app/cmark-gfm.git" ".git"
+          clone_if_missing "Telegram/ThirdParty/libcbor"   "https://github.com/PJK/libcbor.git"            ".git"
+          clone_if_missing "Telegram/ThirdParty/libfido2"  "https://github.com/Yubico/libfido2.git"         ".git"
+          clone_if_missing "Telegram/ThirdParty/GSL"       "https://github.com/Microsoft/GSL.git"           ".git"
+          clone_if_missing "Telegram/ThirdParty/xxHash"    "https://github.com/Cyan4973/xxHash.git"        ".git"
+          clone_if_missing "Telegram/ThirdParty/lz4"       "https://github.com/lz4/lz4.git"                 ".git"
+          clone_if_missing "Telegram/ThirdParty/patches"   "https://github.com/desktop-app/patches.git"     ".git"
+
+          errors=0
+          for f in \
+            cmake/version.cmake cmake/validate_special_target.cmake \
+            Telegram/lib_base/CMakeLists.txt Telegram/lib_ui/CMakeLists.txt \
+            Telegram/lib_tl/CMakeLists.txt Telegram/codegen/CMakeLists.txt \
+            Telegram/ThirdParty/cmark-gfm/.git Telegram/ThirdParty/libcbor/.git; do
+            if [ -e "$f" ]; then
               echo "OK: $f"
             else
-              echo "FAIL: $f not found!"
-              exit 1
+              echo "FAIL: $f"
+              errors=$((errors+1))
             fi
           done
-          echo "Preflight passed"
+
+          if [ "$errors" -gt 0 ]; then
+            echo "Preflight FAILED: $errors missing submodule(s)"
+            exit 1
+          fi
+          echo "Preflight PASSED"
 
   build:
     needs: preflight
@@ -60,33 +92,57 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: none
           fetch-depth: 0
 
-      - name: Force populate ALL submodules
+      - name: Clone submodules
         shell: bash
         run: |
-          # 清理 ghproxy 干扰
+          cd "$GITHUB_WORKSPACE"
           git config --global --unset-all url.https://ghproxy.net/https://github.com/.insteadOf 2>/dev/null || true
 
-          # 强制重新初始化所有子模块（actions/checkout 在这个大仓库上不稳定）
-          git submodule sync --recursive 2>&1 | tail -3
-          git submodule update --init --recursive --force 2>&1 | tail -10
-
-          # 验证 Telegram 关键子模块（CMakeLists.txt 依赖它们）
-          for sub in Telegram/lib_base Telegram/lib_ui Telegram/lib_tl Telegram/codegen \
-                     Telegram/lib_crl Telegram/lib_rpl Telegram/lib_spellcheck \
-                     Telegram/lib_storage Telegram/lib_lottie Telegram/lib_qr \
-                     Telegram/lib_translate Telegram/lib_webrtc Telegram/lib_webview \
-                     Telegram/lib_icu \
-                     Telegram/ThirdParty/cmark-gfm Telegram/ThirdParty/libcbor \
-                     Telegram/ThirdParty/libfido2 Telegram/ThirdParty/patches \
-                     cmake; do
-            if [ ! -f "$sub/CMakeLists.txt" ] && [ ! -f "$sub/version.cmake" ] && [ ! -f "$sub/.git" ] && [ ! -f "$sub/README.md" ]; then
-              echo "WARNING: $sub may be empty"
+          clone_if_missing() {
+            local path="$1" url="$2" marker="$3"
+            marker="${marker:-CMakeLists.txt}"
+            if [ ! -f "$path/$marker" ]; then
+              rm -rf "$path"
+              echo "Cloning $url -> $path"
+              git clone --depth 1 "$url" "$path"
             else
-              echo "OK: $sub"
+              echo "Already exists: $path"
             fi
+          }
+
+          mkdir -p Telegram/ThirdParty
+
+          clone_if_missing "cmake" "https://github.com/desktop-app/cmake_helpers.git" "version.cmake"
+
+          clone_if_missing "Telegram/lib_crl"        "https://github.com/desktop-app/lib_crl.git"
+          clone_if_missing "Telegram/lib_rpl"        "https://github.com/desktop-app/lib_rpl.git"
+          clone_if_missing "Telegram/lib_base"       "https://github.com/desktop-app/lib_base.git"
+          clone_if_missing "Telegram/lib_ui"         "https://github.com/AyuGram/lib_ui.git"
+          clone_if_missing "Telegram/lib_tl"         "https://github.com/AyuGram/lib_tl.git"
+          clone_if_missing "Telegram/lib_spellcheck" "https://github.com/desktop-app/lib_spellcheck.git"
+          clone_if_missing "Telegram/lib_storage"    "https://github.com/desktop-app/lib_storage.git"
+          clone_if_missing "Telegram/lib_lottie"     "https://github.com/desktop-app/lib_lottie.git"
+          clone_if_missing "Telegram/lib_qr"         "https://github.com/desktop-app/lib_qr.git"
+          clone_if_missing "Telegram/lib_translate"  "https://github.com/desktop-app/lib_translate.git"
+          clone_if_missing "Telegram/lib_webrtc"     "https://github.com/desktop-app/lib_webrtc.git"
+          clone_if_missing "Telegram/lib_webview"    "https://github.com/desktop-app/lib_webview.git"
+          clone_if_missing "Telegram/lib_icu"        "https://github.com/AyuGram/lib_icu.git"
+          clone_if_missing "Telegram/codegen"        "https://github.com/AyuGram/codegen.git"
+
+          clone_if_missing "Telegram/ThirdParty/cmark-gfm" "https://github.com/desktop-app/cmark-gfm.git" ".git"
+          clone_if_missing "Telegram/ThirdParty/libcbor"   "https://github.com/PJK/libcbor.git"            ".git"
+          clone_if_missing "Telegram/ThirdParty/libfido2"  "https://github.com/Yubico/libfido2.git"         ".git"
+          clone_if_missing "Telegram/ThirdParty/GSL"       "https://github.com/Microsoft/GSL.git"           ".git"
+          clone_if_missing "Telegram/ThirdParty/xxHash"    "https://github.com/Cyan4973/xxHash.git"        ".git"
+          clone_if_missing "Telegram/ThirdParty/lz4"       "https://github.com/lz4/lz4.git"                 ".git"
+          clone_if_missing "Telegram/ThirdParty/patches"   "https://github.com/desktop-app/patches.git"     ".git"
+
+          # Quick sanity check — don't fail here, just warn
+          for f in cmake/version.cmake Telegram/lib_base/CMakeLists.txt; do
+            [ -e "$f" ] && echo "OK: $f" || echo "WARN: $f missing"
           done
 
       - name: Patch prepare.py
@@ -95,17 +151,14 @@ jobs:
           import pathlib
           f = pathlib.Path("Telegram/build/prepare/prepare.py")
           content = f.read_text(encoding="utf-8")
-          # Aliyun mirror for MSYS2 installer (GitHub releases gives 504)
           content = content.replace(
               "https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830.sfx.exe",
               "https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe"
           )
-          # pacman -Syu can fail after shell restart from core-upgrade
           content = content.replace(
               "pacman -Syu --noconfirm ^\n        make ^",
               "pacman -S --noconfirm ^\n        make ^"
           )
-          # mingw-w64-x86_64-diffutils removed from current MSYS2 mirrors
           content = content.replace(
               "        mingw-w64-x86_64-diffutils ^\n",
               ""
@@ -116,13 +169,14 @@ jobs:
       - name: Prepare ThirdParty
         shell: cmd
         run: |
-          call "%VS_PATH%\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
+          call "%%VS_PATH%%\VC\Auxiliary\Build\vcvarsall.bat" x64
+          cd /d %%GITHUB_WORKSPACE%%\Telegram\build\prepare
           set Platform=x64
           set QT=6.11.2
           python -u prepare.py silent qt6 > D:\prep_out.log 2>&1
-          echo PREPARE_EXIT_CODE=%errorlevel%
-          exit /b %errorlevel%
+          echo PREPARE_EXIT_CODE=%%errorlevel%%
+          type D:\prep_out.log
+          exit /b %%errorlevel%%
         timeout-minutes: 150
 
       - name: Upload prep log
@@ -136,13 +190,14 @@ jobs:
       - name: Configure + Build
         shell: cmd
         run: |
-          call "%VS_PATH%\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cmake -G "Visual Studio 17 2022" -A x64 -B "D:\out" -S "%GITHUB_WORKSPACE%" -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON > D:\cmake_configure.log 2>&1
-          echo CMAKE_EXIT_CODE=%errorlevel%
+          call "%%VS_PATH%%\VC\Auxiliary\Build\vcvarsall.bat" x64
+          cmake -G "Visual Studio 17 2022" -A x64 -B "D:\out" -S "%%GITHUB_WORKSPACE%%" -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON > D:\cmake_configure.log 2>&1
+          echo CMAKE_EXIT_CODE=%%errorlevel%%
           type D:\cmake_configure.log
           cmake --build "D:\out" --config Debug --parallel 2 > D:\cmake_build.log 2>&1
-          echo BUILD_EXIT_CODE=%errorlevel%
-          exit /b %errorlevel%
+          echo BUILD_EXIT_CODE=%%errorlevel%%
+          type D:\cmake_build.log
+          exit /b %%errorlevel%%
         timeout-minutes: 300
 
       - name: Upload CMake log
