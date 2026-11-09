@@ -126,11 +126,6 @@ jobs:
         run: |
           powershell -Command "$c = Get-Content 'Telegram/build/prepare/prepare.py' -Raw; $c = $c.Replace('https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830.sfx.exe','https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe'); $c = $c.Replace(\"pacman -Syu --noconfirm ^\n        make ^\",\"pacman -S --noconfirm ^\n        make ^\"); $c = $c -replace 'mingw-w64-x86_64-diffutils \^\n',''; Set-Content 'Telegram/build/prepare/prepare.py' $c -NoNewline; Write-Output 'OK'"
 
-      - name: Setup VS environment
-        shell: cmd
-        run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
-
       - name: Prepare ThirdParty
         shell: cmd
         run: |
@@ -141,18 +136,17 @@ jobs:
           python prepare.py silent qt6 2>&1 || exit /b %errorlevel%
         timeout-minutes: 150
 
-      - name: Upload prep stdout
-        if: always()
-        shell: cmd
-        run: |
-          echo "Prep completed (exit was handled inline above)"
-
       - name: Configure
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
-          cmake -G "Visual Studio 17 2022" -A x64 -B "D:\out" -S "%GITHUB_WORKSPACE%" -DCMAKE_BUILD_TYPE=Debug -DTDESKTOP_API_ID=1096745 -DTDESKTOP_API_HASH=52593a113a1b765d31122f7d1ed0656f -DT_DISABLE_DEBUG_SKIPPING=ON 2>&1 || exit /b %errorlevel%
+          cmake -G "Ninja Multi-Config" -B "D:\out" -S "%GITHUB_WORKSPACE%" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl 2>&1 || exit /b %errorlevel%
         timeout-minutes: 30
+
+      - name: Inspect build dir
+        shell: cmd
+        run: |
+          DIR D:\out\
 
       - name: Build
         shell: cmd
@@ -160,6 +154,12 @@ jobs:
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
           cmake --build "D:\out" --config Debug --parallel 2 2>&1 || exit /b %errorlevel%
         timeout-minutes: 300
+
+      - name: Inspect output
+        shell: cmd
+        run: |
+          DIR D:\out\
+          DIR D:\out\Debug\ 2>NUL || ECHO No Debug folder
 
       - name: Verify build output
         shell: cmd
@@ -169,7 +169,8 @@ jobs:
             DIR "D:\out\Debug\Telegram.exe"
           ) ELSE (
             ECHO NOT FOUND Telegram.exe
-            DIR D:\out\Debug\ 2>NUL || ECHO Debug folder empty
+            DIR D:\out\ 2>NUL
+            DIR D:\out\Debug\ 2>NUL || ECHO Debug folder missing
             EXIT /B 1
           )
 
