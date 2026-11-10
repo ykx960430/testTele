@@ -8,7 +8,7 @@ on:
 env:
   VS_PATH: 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise'
   Platform: x64
-  QT: '6.11.2'
+  QT: '5.15.19'
 
 jobs:
   preflight:
@@ -26,36 +26,53 @@ jobs:
           cd "$GITHUB_WORKSPACE"
 
           clone_repo() {
-            local path="$1" url="$2" marker="${3:-CMakeLists.txt}"
-            if [ ! -f "$path/$marker" ]; then
+            local path="$1" url="$2" sha="$3"
+            if [ ! -d "$path/.git" ]; then
               rm -rf "$path"
-              echo "Clone: $url -> $path"
-              git clone --depth 1 "$url" "$path"
+              echo "Clone $url @ ${sha:0:8} -> $path"
+              git init -q "$path"
+              git -C "$path" remote add origin "$url"
+              git -C "$path" fetch -q --depth 1 origin "$sha"
+              git -C "$path" checkout -q FETCH_HEAD
             fi
           }
 
+          # Pins match the AyuGram dev state this snapshot is based on
+          # (pre-v7.2.8-merge: cmake_helpers f79a0e6a, bundled rlottie).
           mkdir -p Telegram/ThirdParty
-          clone_repo "cmake"              "https://github.com/desktop-app/cmake_helpers.git" "version.cmake"
-          clone_repo "Telegram/lib_crl"   "https://github.com/desktop-app/lib_crl.git"
-          clone_repo "Telegram/lib_rpl"   "https://github.com/desktop-app/lib_rpl.git"
-          clone_repo "Telegram/lib_base"  "https://github.com/desktop-app/lib_base.git"
-          clone_repo "Telegram/lib_ui"    "https://github.com/AyuGram/lib_ui.git"
-          clone_repo "Telegram/lib_tl"    "https://github.com/AyuGram/lib_tl.git"
-          clone_repo "Telegram/lib_spellcheck" "https://github.com/desktop-app/lib_spellcheck.git"
-          clone_repo "Telegram/lib_storage"    "https://github.com/desktop-app/lib_storage.git"
-          clone_repo "Telegram/lib_lottie"     "https://github.com/desktop-app/lib_lottie.git"
-          clone_repo "Telegram/lib_qr"         "https://github.com/desktop-app/lib_qr.git"
-          clone_repo "Telegram/lib_translate"  "https://github.com/desktop-app/lib_translate.git"
-          clone_repo "Telegram/lib_webrtc"     "https://github.com/desktop-app/lib_webrtc.git"
-          clone_repo "Telegram/lib_webview"    "https://github.com/desktop-app/lib_webview.git"
-          clone_repo "Telegram/lib_icu"        "https://github.com/AyuGram/lib_icu.git"
-          clone_repo "Telegram/codegen"        "https://github.com/AyuGram/codegen.git"
-          clone_repo "Telegram/ThirdParty/cmark-gfm" "https://github.com/desktop-app/cmark-gfm.git" ".git"
-          clone_repo "Telegram/ThirdParty/libcbor"   "https://github.com/PJK/libcbor.git"            ".git"
-          clone_repo "Telegram/ThirdParty/libfido2"  "https://github.com/Yubico/libfido2.git"         ".git"
-          clone_repo "Telegram/ThirdParty/GSL"       "https://github.com/Microsoft/GSL.git"           ".git"
-          clone_repo "Telegram/ThirdParty/xxHash"    "https://github.com/Cyan4973/xxHash.git"        ".git"
-          clone_repo "Telegram/ThirdParty/lz4"       "https://github.com/lz4/lz4.git"                 ".git"
+          clone_repo "cmake"              "https://github.com/desktop-app/cmake_helpers.git" "f79a0e6acdae261270391253d24f47efb54e9a7d"
+          clone_repo "Telegram/lib_crl"   "https://github.com/desktop-app/lib_crl.git"          "7a165302fed408c84b2d1c2513e35a21a141da44"
+          clone_repo "Telegram/lib_rpl"   "https://github.com/desktop-app/lib_rpl.git"          "c57cccffb01d85570decd7fccb88419c9a682e63"
+          clone_repo "Telegram/lib_base"  "https://github.com/desktop-app/lib_base.git"         "82d182a275e197fd717fecc86193d9d91f4fc5b5"
+          clone_repo "Telegram/codegen"   "https://github.com/AyuGram/codegen.git"              "8845d9d45ac754400e19cc2c706dba70a16ef0d5"
+          clone_repo "Telegram/lib_ui"    "https://github.com/AyuGram/lib_ui.git"               "ec0c178bd2aa2acab3c0ca001f18cf9ac8ab89a2"
+          clone_repo "Telegram/lib_lottie" "https://github.com/desktop-app/lib_lottie.git"      "49d67cf66d3573cd71a3228af47a4ac59b64fc90"
+          clone_repo "Telegram/lib_tl"    "https://github.com/AyuGram/lib_tl.git"               "7573852f2fb6ffad152092c71b15437162227147"
+          clone_repo "Telegram/lib_spellcheck" "https://github.com/desktop-app/lib_spellcheck" "1f18c1e35b99697fe58d48d7f5a88e96c928128e"
+          clone_repo "Telegram/lib_storage"    "https://github.com/desktop-app/lib_storage.git" "ccdc72548a5065b5991b4e06e610d76bc4f6023e"
+          clone_repo "Telegram/lib_qr"         "https://github.com/desktop-app/lib_qr.git"      "6fdf60461444ba150e13ac36009c0ffce72c4c83"
+          clone_repo "Telegram/lib_translate"  "https://github.com/desktop-app/lib_translate"   "09c10726220e6862ca91d39b5dec5119aa0177bc"
+          clone_repo "Telegram/lib_webrtc"     "https://github.com/desktop-app/lib_webrtc.git"  "52636e86eaa493de670daf71959d000b281bd153"
+          clone_repo "Telegram/lib_webview"    "https://github.com/desktop-app/lib_webview.git" "71c948902bfac5b25e90e1c9d1c8a34d1ee275c0"
+          clone_repo "Telegram/lib_icu"        "https://github.com/AyuGram/lib_icu.git"         "7e55ddbcda78145b1fdb55c1f07f39299fa263f6"
+          clone_repo "Telegram/ThirdParty/GSL"        "https://github.com/Microsoft/GSL.git"            "87f9d768866548b5b86e72be66c60c5abd4d9b37"
+          clone_repo "Telegram/ThirdParty/xxHash"     "https://github.com/Cyan4973/xxHash.git"          "bbb27a5efb85b92a0486cf361a8635715a53f6ba"
+          clone_repo "Telegram/ThirdParty/lz4"        "https://github.com/lz4/lz4.git"                  "5ff839680134437dbf4678f3d0c7b371d84f4964"
+          clone_repo "Telegram/ThirdParty/rlottie"    "https://github.com/desktop-app/rlottie.git"      "8c69fc20cf2e150db304311f1233a4b55a8892d7"
+          clone_repo "Telegram/ThirdParty/cmark-gfm"  "https://github.com/github/cmark-gfm.git"         "587a12bb54d95ac37241377e6ddc93ea0e45439b"
+          clone_repo "Telegram/ThirdParty/libcbor"    "https://github.com/PJK/libcbor.git"              "170bee2b82cdb7b2ed25af301f62cb6efdd40ec1"
+          clone_repo "Telegram/ThirdParty/libfido2"   "https://github.com/Yubico/libfido2.git"          "b974e7cf2ee7392134cc12c08b76a068cf250dd8"
+          clone_repo "Telegram/ThirdParty/expected"   "https://github.com/TartanLlama/expected"         "292eff8bd8ee230a7df1d6a1c00c4ea0eb2f0362"
+          clone_repo "Telegram/ThirdParty/QR"         "https://github.com/nayuki/QR-Code-generator"     "720f62bddb7226106071d4728c292cb1df519ceb"
+          clone_repo "Telegram/ThirdParty/hunspell"   "https://github.com/hunspell/hunspell"            "22c3381e2066bed616250d373fc5c935598b564a"
+          clone_repo "Telegram/ThirdParty/range-v3"   "https://github.com/ericniebler/range-v3.git"     "a81477931a8aa2ad025c6bda0609f38e09e4d7ec"
+          clone_repo "Telegram/ThirdParty/tgcalls"    "https://github.com/TelegramMessenger/tgcalls.git" "2faee3b5524f54d56c91c2058c00e11c656a74b3"
+          clone_repo "Telegram/ThirdParty/kimageformats" "https://github.com/KDE/kimageformats.git"     "df82311a1081e576c4ac020204578bb8a81b21ec"
+          clone_repo "Telegram/ThirdParty/kcoreaddons"   "https://github.com/KDE/kcoreaddons.git"       "fd84da51b554eac25e35b1e3f373edaab3029b15"
+          clone_repo "Telegram/ThirdParty/cld3"          "https://github.com/google/cld3.git"           "b48dc46512566f5a2d41118c8c1116c4f96dc661"
+          clone_repo "Telegram/ThirdParty/libprisma"     "https://github.com/desktop-app/libprisma.git" "23b0d70f9709da9b38561d5706891a134d18df76"
+          clone_repo "Telegram/ThirdParty/MicroTeX"      "https://github.com/desktop-app/MicroTeX.git"  "7059649a44c24b640c831adef1e5f5b86e77299f"
+          clone_repo "Telegram/ThirdParty/TooManyCooks"  "https://github.com/tzcnt/TooManyCooks.git"    "b86af81982860c96295a7e95e4c60cb335615cef"
 
           errors=0
           for f in \
@@ -82,36 +99,53 @@ jobs:
           cd "$GITHUB_WORKSPACE"
 
           clone_repo() {
-            local path="$1" url="$2" marker="${3:-CMakeLists.txt}"
-            if [ ! -f "$path/$marker" ]; then
+            local path="$1" url="$2" sha="$3"
+            if [ ! -d "$path/.git" ]; then
               rm -rf "$path"
-              echo "Clone: $url -> $path"
-              git clone --depth 1 "$url" "$path"
+              echo "Clone $url @ ${sha:0:8} -> $path"
+              git init -q "$path"
+              git -C "$path" remote add origin "$url"
+              git -C "$path" fetch -q --depth 1 origin "$sha"
+              git -C "$path" checkout -q FETCH_HEAD
             fi
           }
 
+          # Pins match the AyuGram dev state this snapshot is based on
+          # (pre-v7.2.8-merge: cmake_helpers f79a0e6a, bundled rlottie).
           mkdir -p Telegram/ThirdParty
-          clone_repo "cmake"              "https://github.com/desktop-app/cmake_helpers.git" "version.cmake"
-          clone_repo "Telegram/lib_crl"   "https://github.com/desktop-app/lib_crl.git"
-          clone_repo "Telegram/lib_rpl"   "https://github.com/desktop-app/lib_rpl.git"
-          clone_repo "Telegram/lib_base"  "https://github.com/desktop-app/lib_base.git"
-          clone_repo "Telegram/lib_ui"    "https://github.com/AyuGram/lib_ui.git"
-          clone_repo "Telegram/lib_tl"    "https://github.com/AyuGram/lib_tl.git"
-          clone_repo "Telegram/lib_spellcheck" "https://github.com/desktop-app/lib_spellcheck.git"
-          clone_repo "Telegram/lib_storage"    "https://github.com/desktop-app/lib_storage.git"
-          clone_repo "Telegram/lib_lottie"     "https://github.com/desktop-app/lib_lottie.git"
-          clone_repo "Telegram/lib_qr"         "https://github.com/desktop-app/lib_qr.git"
-          clone_repo "Telegram/lib_translate"  "https://github.com/desktop-app/lib_translate.git"
-          clone_repo "Telegram/lib_webrtc"     "https://github.com/desktop-app/lib_webrtc.git"
-          clone_repo "Telegram/lib_webview"    "https://github.com/desktop-app/lib_webview.git"
-          clone_repo "Telegram/lib_icu"        "https://github.com/AyuGram/lib_icu.git"
-          clone_repo "Telegram/codegen"        "https://github.com/AyuGram/codegen.git"
-          clone_repo "Telegram/ThirdParty/cmark-gfm" "https://github.com/desktop-app/cmark-gfm.git" ".git"
-          clone_repo "Telegram/ThirdParty/libcbor"   "https://github.com/PJK/libcbor.git"            ".git"
-          clone_repo "Telegram/ThirdParty/libfido2"  "https://github.com/Yubico/libfido2.git"         ".git"
-          clone_repo "Telegram/ThirdParty/GSL"       "https://github.com/Microsoft/GSL.git"           ".git"
-          clone_repo "Telegram/ThirdParty/xxHash"    "https://github.com/Cyan4973/xxHash.git"        ".git"
-          clone_repo "Telegram/ThirdParty/lz4"       "https://github.com/lz4/lz4.git"                 ".git"
+          clone_repo "cmake"              "https://github.com/desktop-app/cmake_helpers.git" "f79a0e6acdae261270391253d24f47efb54e9a7d"
+          clone_repo "Telegram/lib_crl"   "https://github.com/desktop-app/lib_crl.git"          "7a165302fed408c84b2d1c2513e35a21a141da44"
+          clone_repo "Telegram/lib_rpl"   "https://github.com/desktop-app/lib_rpl.git"          "c57cccffb01d85570decd7fccb88419c9a682e63"
+          clone_repo "Telegram/lib_base"  "https://github.com/desktop-app/lib_base.git"         "82d182a275e197fd717fecc86193d9d91f4fc5b5"
+          clone_repo "Telegram/codegen"   "https://github.com/AyuGram/codegen.git"              "8845d9d45ac754400e19cc2c706dba70a16ef0d5"
+          clone_repo "Telegram/lib_ui"    "https://github.com/AyuGram/lib_ui.git"               "ec0c178bd2aa2acab3c0ca001f18cf9ac8ab89a2"
+          clone_repo "Telegram/lib_lottie" "https://github.com/desktop-app/lib_lottie.git"      "49d67cf66d3573cd71a3228af47a4ac59b64fc90"
+          clone_repo "Telegram/lib_tl"    "https://github.com/AyuGram/lib_tl.git"               "7573852f2fb6ffad152092c71b15437162227147"
+          clone_repo "Telegram/lib_spellcheck" "https://github.com/desktop-app/lib_spellcheck" "1f18c1e35b99697fe58d48d7f5a88e96c928128e"
+          clone_repo "Telegram/lib_storage"    "https://github.com/desktop-app/lib_storage.git" "ccdc72548a5065b5991b4e06e610d76bc4f6023e"
+          clone_repo "Telegram/lib_qr"         "https://github.com/desktop-app/lib_qr.git"      "6fdf60461444ba150e13ac36009c0ffce72c4c83"
+          clone_repo "Telegram/lib_translate"  "https://github.com/desktop-app/lib_translate"   "09c10726220e6862ca91d39b5dec5119aa0177bc"
+          clone_repo "Telegram/lib_webrtc"     "https://github.com/desktop-app/lib_webrtc.git"  "52636e86eaa493de670daf71959d000b281bd153"
+          clone_repo "Telegram/lib_webview"    "https://github.com/desktop-app/lib_webview.git" "71c948902bfac5b25e90e1c9d1c8a34d1ee275c0"
+          clone_repo "Telegram/lib_icu"        "https://github.com/AyuGram/lib_icu.git"         "7e55ddbcda78145b1fdb55c1f07f39299fa263f6"
+          clone_repo "Telegram/ThirdParty/GSL"        "https://github.com/Microsoft/GSL.git"            "87f9d768866548b5b86e72be66c60c5abd4d9b37"
+          clone_repo "Telegram/ThirdParty/xxHash"     "https://github.com/Cyan4973/xxHash.git"          "bbb27a5efb85b92a0486cf361a8635715a53f6ba"
+          clone_repo "Telegram/ThirdParty/lz4"        "https://github.com/lz4/lz4.git"                  "5ff839680134437dbf4678f3d0c7b371d84f4964"
+          clone_repo "Telegram/ThirdParty/rlottie"    "https://github.com/desktop-app/rlottie.git"      "8c69fc20cf2e150db304311f1233a4b55a8892d7"
+          clone_repo "Telegram/ThirdParty/cmark-gfm"  "https://github.com/github/cmark-gfm.git"         "587a12bb54d95ac37241377e6ddc93ea0e45439b"
+          clone_repo "Telegram/ThirdParty/libcbor"    "https://github.com/PJK/libcbor.git"              "170bee2b82cdb7b2ed25af301f62cb6efdd40ec1"
+          clone_repo "Telegram/ThirdParty/libfido2"   "https://github.com/Yubico/libfido2.git"          "b974e7cf2ee7392134cc12c08b76a068cf250dd8"
+          clone_repo "Telegram/ThirdParty/expected"   "https://github.com/TartanLlama/expected"         "292eff8bd8ee230a7df1d6a1c00c4ea0eb2f0362"
+          clone_repo "Telegram/ThirdParty/QR"         "https://github.com/nayuki/QR-Code-generator"     "720f62bddb7226106071d4728c292cb1df519ceb"
+          clone_repo "Telegram/ThirdParty/hunspell"   "https://github.com/hunspell/hunspell"            "22c3381e2066bed616250d373fc5c935598b564a"
+          clone_repo "Telegram/ThirdParty/range-v3"   "https://github.com/ericniebler/range-v3.git"     "a81477931a8aa2ad025c6bda0609f38e09e4d7ec"
+          clone_repo "Telegram/ThirdParty/tgcalls"    "https://github.com/TelegramMessenger/tgcalls.git" "2faee3b5524f54d56c91c2058c00e11c656a74b3"
+          clone_repo "Telegram/ThirdParty/kimageformats" "https://github.com/KDE/kimageformats.git"     "df82311a1081e576c4ac020204578bb8a81b21ec"
+          clone_repo "Telegram/ThirdParty/kcoreaddons"   "https://github.com/KDE/kcoreaddons.git"       "fd84da51b554eac25e35b1e3f373edaab3029b15"
+          clone_repo "Telegram/ThirdParty/cld3"          "https://github.com/google/cld3.git"           "b48dc46512566f5a2d41118c8c1116c4f96dc661"
+          clone_repo "Telegram/ThirdParty/libprisma"     "https://github.com/desktop-app/libprisma.git" "23b0d70f9709da9b38561d5706891a134d18df76"
+          clone_repo "Telegram/ThirdParty/MicroTeX"      "https://github.com/desktop-app/MicroTeX.git"  "7059649a44c24b640c831adef1e5f5b86e77299f"
+          clone_repo "Telegram/ThirdParty/TooManyCooks"  "https://github.com/tzcnt/TooManyCooks.git"    "b86af81982860c96295a7e95e4c60cb335615cef"
 
       - name: Patch prepare.py
         shell: cmd
@@ -123,11 +157,11 @@ jobs:
         run: |
           cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
           set Platform=x64
-          set QT=6.11.2
+          set QT=5.15.19
           set NUMBER_OF_PROCESSORS=1
           set CMAKE_BUILD_PARALLEL_LEVEL=1
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          python prepare.py silent qt6 2>&1
+          python prepare.py silent 2>&1
           IF %ERRORLEVEL% NEQ 0 (
             ECHO prepare.py FAILED with errorlevel %ERRORLEVEL%
             exit /b %ERRORLEVEL%
@@ -138,14 +172,14 @@ jobs:
         shell: cmd
         run: |
           DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\" 2>NUL
-          IF EXIST "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\Qt6Config.cmake" (
-            ECHO Qt6Config.cmake FOUND
-            DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\" 2>NUL
+          IF EXIST "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-5.15.19\lib\cmake\Qt5\Qt5Config.cmake" (
+            ECHO Qt5Config.cmake FOUND
+            DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-5.15.19\lib\cmake\Qt5\" 2>NUL
           ) ELSE (
-            ECHO Qt6Config.cmake NOT found at parent/Libraries/win64.
+            ECHO Qt5Config.cmake NOT found at parent/Libraries/win64.
             ECHO Checking prepare cache_keys:
             DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\cache_keys\" 2>NUL
-            TYPE "%GITHUB_WORKSPACE%\Telegram\build\prepare\cache_keys\qt_6.11.2" 2>NUL || echo NO qt_6.11.2 cache entry
+            TYPE "%GITHUB_WORKSPACE%\Telegram\build\prepare\cache_keys\qt_5.15.19" 2>NUL || echo NO qt_5.15.19 cache entry
             ECHO Also checking if prepare libs dir exists:
             DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\" 2>NUL || echo prepare libs dir does NOT exist
             EXIT /B 1
