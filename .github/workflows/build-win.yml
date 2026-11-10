@@ -141,6 +141,11 @@ jobs:
           find Telegram/build/prepare -name "cache_keys" -maxdepth 3 2>/dev/null || echo "No cache_keys dirs found"
           echo "Cleaned"
 
+      - name: Patch prepare.py
+        shell: cmd
+        run: |
+          powershell -Command "$f='Telegram/build/prepare/prepare.py'; $c=Get-Content $f -Raw; $c=$c -replace 'mingw-w64-x86_64-diffutils \^(\r?\n)?',''; $c=$c -replace 'https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830\.sfx\.exe','https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe'; Set-Content $f $c -NoNewline; Write-Output 'OK'"
+
       - name: Prepare ThirdParty
         shell: cmd
         run: |
