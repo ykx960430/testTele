@@ -121,43 +121,29 @@ jobs:
       - name: Prepare ThirdParty
         shell: cmd
         run: |
-          SETLOCAL EnableDelayedExpansion
-          cd /d !GITHUB_WORKSPACE!\Telegram\build\prepare
+          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
           set Platform=x64
           set QT=6.11.2
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           python prepare.py silent qt6 2>&1
-          SET PREP_EC=!ERRORLEVEL!
-          ECHO PREP_EXIT=!PREP_EC!
-          IF !PREP_EC! NEQ 0 (
-            ECHO [FATAL] prepare.py failed with exit code !PREP_EC!
-            EXIT /B !PREP_EC!
-          )
-          ENDLOCAL
         timeout-minutes: 360
 
       - name: Verify Qt installed
         shell: cmd
         run: |
-          DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\" 2>NUL
-          IF EXIST "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\Qt6Config.cmake" (
-            ECHO Qt6Config.cmake FOUND at prepare libs path
-            DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\" 2>NUL
+          DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\" 2>NUL
+          IF EXIST "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\Qt6Config.cmake" (
+            ECHO Qt6Config.cmake FOUND
+            DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\" 2>NUL
           ) ELSE (
-            ECHO Qt6Config.cmake NOT found.
-            ECHO === cache_keys content ===
+            ECHO Qt6Config.cmake NOT found at parent/Libraries/win64.
+            ECHO Checking prepare cache_keys:
             DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\cache_keys\" 2>NUL
-            TYPE "%GITHUB_WORKSPACE%\Telegram\build\prepare\cache_keys\qt_6.11.2" 2>NUL || echo "NO qt_6.11.2 cache entry"
+            TYPE "%GITHUB_WORKSPACE%\Telegram\build\prepare\cache_keys\qt_6.11.2" 2>NUL || echo NO qt_6.11.2 cache entry
+            ECHO Also checking if prepare libs dir exists:
+            DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\" 2>NUL || echo prepare libs dir does NOT exist
             EXIT /B 1
           )
-
-      - name: Move libs to CMake-expected path
-        shell: cmd
-        run: |
-          mkdir "%GITHUB_WORKSPACE%\..\Libraries\win64" 2>NUL
-          xcopy /E /I /Y "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\*" "%GITHUB_WORKSPACE%\..\Libraries\win64\" 2>NUL
-          DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\" 2>NUL
-        continue-on-error: true
 
       - name: Configure
         shell: cmd
