@@ -139,11 +139,15 @@ jobs:
       - name: Verify Qt installed
         shell: cmd
         run: |
+          DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\" 2>NUL
           IF EXIST "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\Qt6Config.cmake" (
             ECHO Qt6Config.cmake FOUND at prepare libs path
+            DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\" 2>NUL
           ) ELSE (
             ECHO Qt6Config.cmake NOT found.
-            DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\" 2>NUL
+            ECHO === cache_keys content ===
+            DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\cache_keys\" 2>NUL
+            TYPE "%GITHUB_WORKSPACE%\Telegram\build\prepare\cache_keys\qt_6.11.2" 2>NUL || echo "NO qt_6.11.2 cache entry"
             EXIT /B 1
           )
 
