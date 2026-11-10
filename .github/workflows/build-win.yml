@@ -207,7 +207,7 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
-          cmake --build "D:\out" --config Debug --parallel 1
+          cmake --build "D:\out" --config Debug --parallel 4
           IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
         timeout-minutes: 300
 
