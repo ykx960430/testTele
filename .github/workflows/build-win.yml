@@ -155,7 +155,7 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
-          cmake -G "Ninja Multi-Config" -B "D:\out" -S "%GITHUB_WORKSPACE%" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+          cmake -G "Ninja Multi-Config" -B "D:\out" -S "%GITHUB_WORKSPACE%" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -D TDESKTOP_API_ID=17349 -D TDESKTOP_API_HASH=344583e45741c457fe1862106095a5eb
           IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
         timeout-minutes: 30
 
