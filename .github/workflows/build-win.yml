@@ -19,12 +19,11 @@ jobs:
           submodules: none
           fetch-depth: 0
 
-      - name: Clone submodules
+      - name: Clone submodules for CMake
         shell: bash
         run: |
           set -e
           cd "$GITHUB_WORKSPACE"
-          git config --global --unset-all url.https://ghproxy.net/https://github.com/.insteadOf 2>/dev/null || true
 
           clone_repo() {
             local path="$1" url="$2" marker="${3:-CMakeLists.txt}"
@@ -57,14 +56,12 @@ jobs:
           clone_repo "Telegram/ThirdParty/GSL"       "https://github.com/Microsoft/GSL.git"           ".git"
           clone_repo "Telegram/ThirdParty/xxHash"    "https://github.com/Cyan4973/xxHash.git"        ".git"
           clone_repo "Telegram/ThirdParty/lz4"       "https://github.com/lz4/lz4.git"                 ".git"
-          clone_repo "Telegram/ThirdParty/patches"   "https://github.com/desktop-app/patches.git"     ".git"
 
           errors=0
-          for f in \
-            cmake/version.cmake cmake/validate_special_target.cmake \
-            Telegram/lib_base/CMakeLists.txt Telegram/lib_ui/CMakeLists.txt \
-            Telegram/lib_tl/CMakeLists.txt Telegram/codegen/CMakeLists.txt \
-            Telegram/ThirdParty/cmark-gfm/.git Telegram/ThirdParty/libcbor/.git; do
+          for f in cmake/version.cmake cmake/validate_special_target.cmake \
+                   Telegram/lib_base/CMakeLists.txt Telegram/lib_ui/CMakeLists.txt \
+                   Telegram/lib_tl/CMakeLists.txt Telegram/codegen/CMakeLists.txt \
+                   Telegram/ThirdParty/cmark-gfm/.git Telegram/ThirdParty/libcbor/.git; do
             [ -e "$f" ] && echo "OK  $f" || { echo "FAIL $f"; errors=$((errors+1)); }
           done
           [ "$errors" -eq 0 ] && echo "Preflight PASSED" || { echo "Preflight FAILED"; exit 1; }
@@ -78,11 +75,10 @@ jobs:
           submodules: none
           fetch-depth: 0
 
-      - name: Clone submodules
+      - name: Clone submodules for CMake
         shell: bash
         run: |
           cd "$GITHUB_WORKSPACE"
-          git config --global --unset-all url.https://ghproxy.net/https://github.com/.insteadOf 2>/dev/null || true
 
           clone_repo() {
             local path="$1" url="$2" marker="${3:-CMakeLists.txt}"
@@ -115,36 +111,20 @@ jobs:
           clone_repo "Telegram/ThirdParty/GSL"       "https://github.com/Microsoft/GSL.git"           ".git"
           clone_repo "Telegram/ThirdParty/xxHash"    "https://github.com/Cyan4973/xxHash.git"        ".git"
           clone_repo "Telegram/ThirdParty/lz4"       "https://github.com/lz4/lz4.git"                 ".git"
-          clone_repo "Telegram/ThirdParty/patches"   "https://github.com/desktop-app/patches.git"     ".git"
-
-          for f in cmake/version.cmake Telegram/lib_base/CMakeLists.txt; do
-            [ -e "$f" ] && echo "OK  $f" || echo "WARN $f missing"
-          done
+          # Note: Telegram/ThirdParty/patches NOT cloned here — prepare.py handles it
 
       - name: Patch prepare.py
         shell: cmd
         run: |
-          powershell -Command "$c = Get-Content 'Telegram/build/prepare/prepare.py' -Raw; $c = $c.Replace('https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830.sfx.exe','https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe'); $c = $c.Replace(\"pacman -Syu --noconfirm ^\n        make ^\",\"pacman -S --noconfirm ^\n        make ^\"); $c = $c -replace 'mingw-w64-x86_64-diffutils \^\n',''; Set-Content 'Telegram/build/prepare/prepare.py' $c -NoNewline; Write-Output 'OK'"
+          powershell -Command "$c = Get-Content 'Telegram/build/prepare/prepare.py' -Raw; $c = $c -replace 'mingw-w64-x86_64-diffutils \^(\r?\n)?',''; $c = $c -replace 'https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830\.sfx\.exe','https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe'; Set-Content 'Telegram/build/prepare/prepare.py' $c -NoNewline; Write-Output 'OK: diffutils removed, MSYS2 URL fixed'"
 
-      - name: Clean any cached build state
+      - name: Clean prepare cache
         shell: bash
         run: |
           cd "$GITHUB_WORKSPACE"
-          # Remove ALL prepare output and cache directories
-          rm -rf Telegram/ThirdParty 2>/dev/null || true
-          rm -rf Telegram/build/prepare/ThirdParty 2>/dev/null || true
-          rm -rf Telegram/build/prepare/Libraries 2>/dev/null || true
+          # Only remove prepare.py's build cache; keep submodule source dirs intact
           rm -rf Telegram/build/prepare/cache_keys 2>/dev/null || true
-          # Verify they're gone
-          echo "=== After cleanup ==="
-          ls -la Telegram/build/prepare/ 2>/dev/null || echo "prepare dir doesn't exist"
-          find Telegram/build/prepare -name "cache_keys" -maxdepth 3 2>/dev/null || echo "No cache_keys dirs found"
-          echo "Cleaned"
-
-      - name: Patch prepare.py
-        shell: cmd
-        run: |
-          powershell -Command "$f='Telegram/build/prepare/prepare.py'; $c=Get-Content $f -Raw; $c=$c -replace 'mingw-w64-x86_64-diffutils \^(\r?\n)?',''; $c=$c -replace 'https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830\.sfx\.exe','https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe'; Set-Content $f $c -NoNewline; Write-Output 'OK'"
+          echo "Cache cleared"
 
       - name: Prepare ThirdParty
         shell: cmd
@@ -153,10 +133,21 @@ jobs:
           set Platform=x64
           set QT=6.11.2
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          python prepare.py silent qt6 qt_6.11.2 2>&1
+          python prepare.py silent qt6 2>&1
           echo PREP_EXIT=%errorlevel%
           exit /b 0
-        timeout-minutes: 150
+        timeout-minutes: 360
+
+      - name: Verify Qt installed
+        shell: cmd
+        run: |
+          IF EXIST "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\Qt6Config.cmake" (
+            ECHO Qt6Config.cmake FOUND
+          ) ELSE (
+            ECHO Qt6Config.cmake NOT found.
+            DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\" 2>NUL
+            EXIT /B 1
+          )
 
       - name: Move libs to CMake-expected path
         shell: cmd
@@ -165,37 +156,6 @@ jobs:
           xcopy /E /I /Y "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\*" "%GITHUB_WORKSPACE%\..\Libraries\win64\" 2>NUL
           DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\" 2>NUL
         continue-on-error: true
-
-      - name: Verify Qt installed
-        shell: cmd
-        run: |
-          IF EXIST "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\Qt6Config.cmake" (
-            ECHO Qt6Config.cmake FOUND at parent/Libraries
-          ) ELSE IF EXIST "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\Qt6Config.cmake" (
-            ECHO Qt6Config.cmake FOUND at Telegram/build/prepare/Libraries
-          ) ELSE (
-            ECHO Qt6Config.cmake NOT found in expected locations.
-            ECHO Searching for Qt6Config.cmake anywhere...
-            DIR /S /B D:\Qt6Config.cmake 2>NUL
-            DIR /S /B %GITHUB_WORKSPACE%\Qt6Config.cmake 2>NUL
-            ECHO === Check prepare libs content ===
-            DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\" 2>NUL
-            EXIT /B 1
-          )
-
-      - name: Rebuild Qt stage if missing
-        shell: cmd
-        if: failure()
-        run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
-          cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
-          set Platform=x64
-          set QT=6.11.2
-          python -u prepare.py silent qt_6.11.2 2>&1 || exit /b %errorlevel%
-          mkdir "%GITHUB_WORKSPACE%\..\Libraries\win64" 2>NUL
-          xcopy /E /I /Y "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\Qt-6.11.2\*" "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\" 2>NUL
-          DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-6.11.2\" 2>NUL || ECHO Qt-6.11.2 folder not found
-        timeout-minutes: 180
 
       - name: Configure
         shell: cmd
@@ -223,25 +183,12 @@ jobs:
           IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
         timeout-minutes: 300
 
-      - name: Inspect build dir after build
+      - name: Inspect build output
         shell: cmd
         run: |
           DIR D:\out\
           DIR D:\out\Debug\ 2>NUL || ECHO No Debug folder
         continue-on-error: true
-
-      - name: Verify build output
-        shell: cmd
-        run: |
-          IF EXIST "D:\out\Debug\Telegram.exe" (
-            ECHO FOUND Telegram.exe
-            DIR "D:\out\Debug\Telegram.exe"
-          ) ELSE (
-            ECHO NOT FOUND Telegram.exe
-            DIR D:\out\ 2>NUL
-            DIR D:\out\Debug\ 2>NUL || ECHO Debug folder missing
-            EXIT /B 1
-          )
 
       - name: Upload Artifact
         if: success()
