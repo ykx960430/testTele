@@ -19,7 +19,7 @@ jobs:
           submodules: none
           fetch-depth: 0
 
-      - name: Clone submodules for CMake
+      - name: Clone CMake submodules
         shell: bash
         run: |
           set -e
@@ -35,12 +35,12 @@ jobs:
           }
 
           mkdir -p Telegram/ThirdParty
-          clone_repo "cmake" "https://github.com/desktop-app/cmake_helpers.git" "version.cmake"
-          clone_repo "Telegram/lib_crl"        "https://github.com/desktop-app/lib_crl.git"
-          clone_repo "Telegram/lib_rpl"        "https://github.com/desktop-app/lib_rpl.git"
-          clone_repo "Telegram/lib_base"       "https://github.com/desktop-app/lib_base.git"
-          clone_repo "Telegram/lib_ui"         "https://github.com/AyuGram/lib_ui.git"
-          clone_repo "Telegram/lib_tl"         "https://github.com/AyuGram/lib_tl.git"
+          clone_repo "cmake"              "https://github.com/desktop-app/cmake_helpers.git" "version.cmake"
+          clone_repo "Telegram/lib_crl"   "https://github.com/desktop-app/lib_crl.git"
+          clone_repo "Telegram/lib_rpl"   "https://github.com/desktop-app/lib_rpl.git"
+          clone_repo "Telegram/lib_base"  "https://github.com/desktop-app/lib_base.git"
+          clone_repo "Telegram/lib_ui"    "https://github.com/AyuGram/lib_ui.git"
+          clone_repo "Telegram/lib_tl"    "https://github.com/AyuGram/lib_tl.git"
           clone_repo "Telegram/lib_spellcheck" "https://github.com/desktop-app/lib_spellcheck.git"
           clone_repo "Telegram/lib_storage"    "https://github.com/desktop-app/lib_storage.git"
           clone_repo "Telegram/lib_lottie"     "https://github.com/desktop-app/lib_lottie.git"
@@ -58,10 +58,11 @@ jobs:
           clone_repo "Telegram/ThirdParty/lz4"       "https://github.com/lz4/lz4.git"                 ".git"
 
           errors=0
-          for f in cmake/version.cmake cmake/validate_special_target.cmake \
-                   Telegram/lib_base/CMakeLists.txt Telegram/lib_ui/CMakeLists.txt \
-                   Telegram/lib_tl/CMakeLists.txt Telegram/codegen/CMakeLists.txt \
-                   Telegram/ThirdParty/cmark-gfm/.git Telegram/ThirdParty/libcbor/.git; do
+          for f in \
+            cmake/version.cmake cmake/validate_special_target.cmake \
+            Telegram/lib_base/CMakeLists.txt Telegram/lib_ui/CMakeLists.txt \
+            Telegram/lib_tl/CMakeLists.txt Telegram/codegen/CMakeLists.txt \
+            Telegram/ThirdParty/cmark-gfm/.git Telegram/ThirdParty/libcbor/.git; do
             [ -e "$f" ] && echo "OK  $f" || { echo "FAIL $f"; errors=$((errors+1)); }
           done
           [ "$errors" -eq 0 ] && echo "Preflight PASSED" || { echo "Preflight FAILED"; exit 1; }
@@ -75,7 +76,7 @@ jobs:
           submodules: none
           fetch-depth: 0
 
-      - name: Clone submodules for CMake
+      - name: Clone CMake submodules
         shell: bash
         run: |
           cd "$GITHUB_WORKSPACE"
@@ -90,12 +91,12 @@ jobs:
           }
 
           mkdir -p Telegram/ThirdParty
-          clone_repo "cmake" "https://github.com/desktop-app/cmake_helpers.git" "version.cmake"
-          clone_repo "Telegram/lib_crl"        "https://github.com/desktop-app/lib_crl.git"
-          clone_repo "Telegram/lib_rpl"        "https://github.com/desktop-app/lib_rpl.git"
-          clone_repo "Telegram/lib_base"       "https://github.com/desktop-app/lib_base.git"
-          clone_repo "Telegram/lib_ui"         "https://github.com/AyuGram/lib_ui.git"
-          clone_repo "Telegram/lib_tl"         "https://github.com/AyuGram/lib_tl.git"
+          clone_repo "cmake"              "https://github.com/desktop-app/cmake_helpers.git" "version.cmake"
+          clone_repo "Telegram/lib_crl"   "https://github.com/desktop-app/lib_crl.git"
+          clone_repo "Telegram/lib_rpl"   "https://github.com/desktop-app/lib_rpl.git"
+          clone_repo "Telegram/lib_base"  "https://github.com/desktop-app/lib_base.git"
+          clone_repo "Telegram/lib_ui"    "https://github.com/AyuGram/lib_ui.git"
+          clone_repo "Telegram/lib_tl"    "https://github.com/AyuGram/lib_tl.git"
           clone_repo "Telegram/lib_spellcheck" "https://github.com/desktop-app/lib_spellcheck.git"
           clone_repo "Telegram/lib_storage"    "https://github.com/desktop-app/lib_storage.git"
           clone_repo "Telegram/lib_lottie"     "https://github.com/desktop-app/lib_lottie.git"
@@ -111,20 +112,11 @@ jobs:
           clone_repo "Telegram/ThirdParty/GSL"       "https://github.com/Microsoft/GSL.git"           ".git"
           clone_repo "Telegram/ThirdParty/xxHash"    "https://github.com/Cyan4973/xxHash.git"        ".git"
           clone_repo "Telegram/ThirdParty/lz4"       "https://github.com/lz4/lz4.git"                 ".git"
-          # Note: Telegram/ThirdParty/patches NOT cloned here — prepare.py handles it
 
       - name: Patch prepare.py
         shell: cmd
         run: |
-          powershell -Command "$c = Get-Content 'Telegram/build/prepare/prepare.py' -Raw; $c = $c -replace 'mingw-w64-x86_64-diffutils \^(\r?\n)?',''; $c = $c -replace 'https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830\.sfx\.exe','https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe'; Set-Content 'Telegram/build/prepare/prepare.py' $c -NoNewline; Write-Output 'OK: diffutils removed, MSYS2 URL fixed'"
-
-      - name: Clean prepare cache
-        shell: bash
-        run: |
-          cd "$GITHUB_WORKSPACE"
-          # Only remove prepare.py's build cache; keep submodule source dirs intact
-          rm -rf Telegram/build/prepare/cache_keys 2>/dev/null || true
-          echo "Cache cleared"
+          powershell -Command "$c = Get-Content 'Telegram/build/prepare/prepare.py' -Raw; $c = $c -replace 'mingw-w64-x86_64-diffutils \^(\r?\n)?',''; $c = $c -replace 'https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830\.sfx\.exe','https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe'; Set-Content 'Telegram/build/prepare/prepare.py' $c -NoNewline; Write-Output 'OK: diffutils removed, MSYS2 installer -> aliyun mirror'"
 
       - name: Prepare ThirdParty
         shell: cmd
@@ -142,7 +134,7 @@ jobs:
         shell: cmd
         run: |
           IF EXIST "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\Qt-6.11.2\lib\cmake\Qt6\Qt6Config.cmake" (
-            ECHO Qt6Config.cmake FOUND
+            ECHO Qt6Config.cmake FOUND at prepare libs path
           ) ELSE (
             ECHO Qt6Config.cmake NOT found.
             DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\" 2>NUL
@@ -182,13 +174,6 @@ jobs:
           cmake --build "D:\out" --config Debug --parallel 2
           IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
         timeout-minutes: 300
-
-      - name: Inspect build output
-        shell: cmd
-        run: |
-          DIR D:\out\
-          DIR D:\out\Debug\ 2>NUL || ECHO No Debug folder
-        continue-on-error: true
 
       - name: Upload Artifact
         if: success()
