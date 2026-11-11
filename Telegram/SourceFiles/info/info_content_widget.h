@@ -61,6 +61,10 @@ namespace Info::Downloads {
 struct Tag;
 } // namespace Info::Downloads
 
+namespace Info::DownloadsBig {
+struct Tag;
+} // namespace Info::DownloadsBig
+
 namespace Info::Statistics {
 struct Tag;
 } // namespace Info::Statistics
