@@ -175,7 +175,7 @@ void DownloadManager::trackSession(not_null<Main::Session*> session) {
 	data.resolveNeeded = data.downloaded.size();
 	deserializePaused(
 		session->account().local().pausedDownloadsSerialized());
-	ValidatePausedDownloads();
+	validatePausedDownloads();
 
 	session->data().documentLoadProgress(
 	) | rpl::filter([=](not_null<DocumentData*> document) {
