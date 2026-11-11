@@ -38,9 +38,9 @@ jobs:
           }
 
           # Pins match the AyuGram dev state this snapshot is based on
-          # (pre-v7.2.8-merge: cmake_helpers f79a0e6a, bundled rlottie).
+          # (cmake_helpers 5e21e7ac = tlottie, no protobuf, no wallet_engine).
           mkdir -p Telegram/ThirdParty
-          clone_repo "cmake"              "https://github.com/desktop-app/cmake_helpers.git" "f79a0e6acdae261270391253d24f47efb54e9a7d"
+          clone_repo "cmake"              "https://github.com/desktop-app/cmake_helpers.git" "5e21e7ac353138128145ec4419c0666dc9959347"
           clone_repo "Telegram/lib_crl"   "https://github.com/desktop-app/lib_crl.git"          "7a165302fed408c84b2d1c2513e35a21a141da44"
           clone_repo "Telegram/lib_rpl"   "https://github.com/desktop-app/lib_rpl.git"          "c57cccffb01d85570decd7fccb88419c9a682e63"
           clone_repo "Telegram/lib_base"  "https://github.com/desktop-app/lib_base.git"         "82d182a275e197fd717fecc86193d9d91f4fc5b5"
@@ -58,8 +58,7 @@ jobs:
           clone_repo "Telegram/ThirdParty/GSL"        "https://github.com/Microsoft/GSL.git"            "87f9d768866548b5b86e72be66c60c5abd4d9b37"
           clone_repo "Telegram/ThirdParty/xxHash"     "https://github.com/Cyan4973/xxHash.git"          "bbb27a5efb85b92a0486cf361a8635715a53f6ba"
           clone_repo "Telegram/ThirdParty/lz4"        "https://github.com/lz4/lz4.git"                  "5ff839680134437dbf4678f3d0c7b371d84f4964"
-          clone_repo "Telegram/ThirdParty/rlottie"    "https://github.com/desktop-app/rlottie.git"      "8c69fc20cf2e150db304311f1233a4b55a8892d7"
-          clone_repo "Telegram/ThirdParty/cmark-gfm"  "https://github.com/github/cmark-gfm.git"         "587a12bb54d95ac37241377e6ddc93ea0e45439b"
+                    clone_repo "Telegram/ThirdParty/cmark-gfm"  "https://github.com/github/cmark-gfm.git"         "587a12bb54d95ac37241377e6ddc93ea0e45439b"
           clone_repo "Telegram/ThirdParty/libcbor"    "https://github.com/PJK/libcbor.git"              "170bee2b82cdb7b2ed25af301f62cb6efdd40ec1"
           clone_repo "Telegram/ThirdParty/libfido2"   "https://github.com/Yubico/libfido2.git"          "b974e7cf2ee7392134cc12c08b76a068cf250dd8"
           clone_repo "Telegram/ThirdParty/expected"   "https://github.com/TartanLlama/expected"         "292eff8bd8ee230a7df1d6a1c00c4ea0eb2f0362"
@@ -111,9 +110,9 @@ jobs:
           }
 
           # Pins match the AyuGram dev state this snapshot is based on
-          # (pre-v7.2.8-merge: cmake_helpers f79a0e6a, bundled rlottie).
+          # (cmake_helpers 5e21e7ac = tlottie, no protobuf, no wallet_engine).
           mkdir -p Telegram/ThirdParty
-          clone_repo "cmake"              "https://github.com/desktop-app/cmake_helpers.git" "f79a0e6acdae261270391253d24f47efb54e9a7d"
+          clone_repo "cmake"              "https://github.com/desktop-app/cmake_helpers.git" "5e21e7ac353138128145ec4419c0666dc9959347"
           clone_repo "Telegram/lib_crl"   "https://github.com/desktop-app/lib_crl.git"          "7a165302fed408c84b2d1c2513e35a21a141da44"
           clone_repo "Telegram/lib_rpl"   "https://github.com/desktop-app/lib_rpl.git"          "c57cccffb01d85570decd7fccb88419c9a682e63"
           clone_repo "Telegram/lib_base"  "https://github.com/desktop-app/lib_base.git"         "82d182a275e197fd717fecc86193d9d91f4fc5b5"
@@ -131,8 +130,7 @@ jobs:
           clone_repo "Telegram/ThirdParty/GSL"        "https://github.com/Microsoft/GSL.git"            "87f9d768866548b5b86e72be66c60c5abd4d9b37"
           clone_repo "Telegram/ThirdParty/xxHash"     "https://github.com/Cyan4973/xxHash.git"          "bbb27a5efb85b92a0486cf361a8635715a53f6ba"
           clone_repo "Telegram/ThirdParty/lz4"        "https://github.com/lz4/lz4.git"                  "5ff839680134437dbf4678f3d0c7b371d84f4964"
-          clone_repo "Telegram/ThirdParty/rlottie"    "https://github.com/desktop-app/rlottie.git"      "8c69fc20cf2e150db304311f1233a4b55a8892d7"
-          clone_repo "Telegram/ThirdParty/cmark-gfm"  "https://github.com/github/cmark-gfm.git"         "587a12bb54d95ac37241377e6ddc93ea0e45439b"
+                    clone_repo "Telegram/ThirdParty/cmark-gfm"  "https://github.com/github/cmark-gfm.git"         "587a12bb54d95ac37241377e6ddc93ea0e45439b"
           clone_repo "Telegram/ThirdParty/libcbor"    "https://github.com/PJK/libcbor.git"              "170bee2b82cdb7b2ed25af301f62cb6efdd40ec1"
           clone_repo "Telegram/ThirdParty/libfido2"   "https://github.com/Yubico/libfido2.git"          "b974e7cf2ee7392134cc12c08b76a068cf250dd8"
           clone_repo "Telegram/ThirdParty/expected"   "https://github.com/TartanLlama/expected"         "292eff8bd8ee230a7df1d6a1c00c4ea0eb2f0362"
