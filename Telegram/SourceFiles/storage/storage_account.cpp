@@ -1013,6 +1013,7 @@ void Account::readLocations() {
 			}
 		}
 	}
+}
 
 void Account::updateDownloads(
 		Fn<std::optional<QByteArray>()> downloadsSerialize) {
