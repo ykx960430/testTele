@@ -1,5 +1,9 @@
 name: Windows Build
 
+permissions:
+  contents: read
+  actions: write
+
 on:
   push:
     branches: [dev, main, master]
@@ -93,16 +97,28 @@ jobs:
           fetch-depth: 0
 
       - name: Restore Libraries cache
-        uses: actions/cache@v4
+        id: cache_libs
+        uses: actions/cache/restore@v4
         with:
           path: D:\a\testTele\Libraries
           key: prepare-${{ hashFiles('Telegram/build/prepare/prepare.py') }}-${{ hashFiles('Telegram/build/qt_version.py') }}
 
-      - name: Restore ThirdParty cache
-        uses: actions/cache@v4
-        with:
-          path: D:\a\testTele\ThirdParty
-          key: prepare-tp-${{ hashFiles('Telegram/build/prepare/prepare.py') }}-${{ hashFiles('Telegram/build/qt_version.py') }}
+      - name: Recreate cached stage directories
+        shell: bash
+        run: |
+          set +e
+          LIBS="D:/a/testTele/Libraries"
+          KEYS="$LIBS/win64/cache_keys"
+          # prepare.py treats a missing stage directory as "rebuild this stage".
+          # The Qt source checkout is emptied before caching (it is never read
+          # by the build), so put the empty directory back or the 25 minute
+          # jom build of Qt runs again on every single run.
+          if [ -f "$KEYS/qt_5.15.19" ]; then
+            mkdir -p "$LIBS/win64/qt_5.15.19"
+            echo "recreated empty qt_5.15.19 so the Qt stage is skipped"
+          else
+            echo "no qt_5.15.19 cache_key, Qt will be built"
+          fi
 
       - name: Clone CMake submodules
         shell: bash
@@ -168,8 +184,8 @@ jobs:
           cd /d %GITHUB_WORKSPACE%\Telegram\build\prepare
           set Platform=x64
           set QT=5.15.19
-          set NUMBER_OF_PROCESSORS=1
-          set CMAKE_BUILD_PARALLEL_LEVEL=1
+          set NUMBER_OF_PROCESSORS=2
+          set CMAKE_BUILD_PARALLEL_LEVEL=2
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           python prepare.py silent 2>&1
           IF %ERRORLEVEL% NEQ 0 (
@@ -178,34 +194,88 @@ jobs:
           )
         timeout-minutes: 360
 
-      - name: Report prepared sizes
+      - name: Trim prepared libraries for caching
         shell: bash
         run: |
-          echo "== Libraries =="
-          du -sh /d/a/testTele/Libraries 2>/dev/null || echo "missing"
-          echo "== ThirdParty =="
-          du -sh /d/a/testTele/ThirdParty 2>/dev/null || echo "missing"
-          echo "== Libraries cache_keys =="
-          ls /d/a/testTele/Libraries/win64/cache_keys 2>/dev/null | wc -l
-          echo "== ThirdParty cache_keys =="
+          set +e
+          LIBS="D:/a/testTele/Libraries"
+          KEYS="$LIBS/win64/cache_keys"
+
+          before=$(du -sm "$LIBS" 2>/dev/null | awk '{print $1}')
+          echo "== Before: ${before:-?} MB =="
+          df -h /d 2>/dev/null | tail -1
+
+          # Tier 1a: the Qt source checkout is several GB and is never read by
+          # the build (only Libraries/win64/Qt-5.15.19 is). The directory
+          # itself has to survive, because prepare.py's checkCacheKey() treats
+          # a missing directory as "rebuild this stage".
+          if [ -f "$KEYS/qt_5.15.19" ] && [ -d "$LIBS/win64/qt_5.15.19" ]; then
+            echo "== Tier 1a: emptying qt_5.15.19 =="
+            find "$LIBS/win64/qt_5.15.19" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          else
+            echo "== Tier 1a: skipped =="
+          fi
+
+          # Tier 1b: git metadata is read neither by the build nor by the
+          # prepare cache keys.
+          if [ -d "$LIBS/win64" ]; then
+            echo "== Tier 1b: removing .git directories =="
+            find "$LIBS/win64" -type d -name .git -prune -exec rm -rf {} +
+          fi
+
+          mid=$(du -sm "$LIBS" 2>/dev/null | awk '{print $1}')
+          echo "== After tier 1: ${mid:-?} MB =="
+
+          # Tier 2: ANGLE and OWT are consumed as prebuilt static libraries, so
+          # their sources, their object files and their Release trees are dead
+          # weight. Only the Debug *.lib files are linked.
+          echo "== Tier 2: trimming tg_angle / tg_owt =="
+          if [ -f "$KEYS/tg_angle" ] && [ -d "$LIBS/win64/tg_angle" ]; then
+            find "$LIBS/win64/tg_angle" -mindepth 1 -maxdepth 1 \
+              ! -name include ! -name out -exec rm -rf {} +
+            find "$LIBS/win64/tg_angle/out" -mindepth 1 -maxdepth 1 \
+              ! -name Debug -exec rm -rf {} +
+            find "$LIBS/win64/tg_angle/out/Debug" -mindepth 1 -maxdepth 1 \
+              ! -name '*.lib' ! -name '*.pdb' ! -name '*.a' -exec rm -rf {} +
+          else
+            echo "tg_angle trim skipped"
+          fi
+          if [ -f "$KEYS/tg_owt" ] && [ -d "$LIBS/win64/tg_owt" ]; then
+            find "$LIBS/win64/tg_owt/out" -mindepth 1 -maxdepth 1 \
+              ! -name Debug -exec rm -rf {} +
+            find "$LIBS/win64/tg_owt/out/Debug" -mindepth 1 -maxdepth 1 \
+              ! -name '*.lib' ! -name '*.pdb' ! -name '*.a' -exec rm -rf {} +
+          else
+            echo "tg_owt trim skipped"
+          fi
+
+          after=$(du -sm "$LIBS" 2>/dev/null | awk '{print $1}')
+          echo "== After trim: ${after:-?} MB (was ${before:-?} MB) =="
+
+          echo "== Largest remaining entries =="
+          du -sh "$LIBS"/win64/* 2>/dev/null | sort -rh | head -15
+
+          echo "== cache_keys present =="
+          ls "$KEYS" 2>/dev/null | wc -l
+          echo "== ThirdParty cache_keys present =="
           ls /d/a/testTele/ThirdParty/cache_keys 2>/dev/null | wc -l
+
+      - name: Save Libraries cache
+        if: success()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: D:\a\testTele\Libraries
+          key: ${{ steps.cache_libs.outputs.cache-primary-key }}
 
       - name: Verify Qt installed
         shell: cmd
         run: |
-          DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\" 2>NUL
-          IF EXIST "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-5.15.19\lib\cmake\Qt5\Qt5Config.cmake" (
-            ECHO Qt5Config.cmake FOUND
-            DIR "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-5.15.19\lib\cmake\Qt5\" 2>NUL
-          ) ELSE (
+          IF NOT EXIST "%GITHUB_WORKSPACE%\..\Libraries\win64\Qt-5.15.19\lib\cmake\Qt5\Qt5Config.cmake" (
             ECHO Qt5Config.cmake NOT found at parent/Libraries/win64.
-            ECHO Checking prepare cache_keys:
-            DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\cache_keys\" 2>NUL
-            TYPE "%GITHUB_WORKSPACE%\Telegram\build\prepare\cache_keys\qt_5.15.19" 2>NUL || echo NO qt_5.15.19 cache entry
-            ECHO Also checking if prepare libs dir exists:
-            DIR "%GITHUB_WORKSPACE%\Telegram\build\prepare\Libraries\win64\" 2>NUL || echo prepare libs dir does NOT exist
             EXIT /B 1
           )
+          ECHO Qt5Config.cmake FOUND
 
       - name: Configure
         shell: cmd
@@ -224,12 +294,13 @@ jobs:
             EXIT /B 1
           )
           ECHO build.ninja EXISTS
+          FSUTIL volume diskfree D: || ECHO fsutil diskfree failed
 
       - name: Build
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
-          cmake --build "D:\out" --config Debug --parallel 4
+          cmake --build "D:\out" --config Debug --parallel 2
           IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
         timeout-minutes: 300
 
