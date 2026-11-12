@@ -241,7 +241,7 @@ private:
 	void loadingStop(Main::Session *onlyInSession);
 
 	void finishFilesDelete(DeleteFilesDescriptor &&descriptor);
-	void writePostponed(not_null<Main::Session*> session);
+	void writePostponed(Main::Session *session);
 	[[nodiscard]] Fn<std::optional<QByteArray>()> serializator(
 		not_null<Main::Session*> session) const;
 	[[nodiscard]] std::vector<DownloadedId> deserialize(

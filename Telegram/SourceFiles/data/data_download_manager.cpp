@@ -1302,7 +1302,13 @@ DownloadManager::SessionData &DownloadManager::sessionData(
 	return sessionData(&document->session());
 }
 
-void DownloadManager::writePostponed(not_null<Main::Session*> session) {
+void DownloadManager::writePostponed(Main::Session *session) {
+	if (!session) {
+		for (auto &[s, data] : _sessions) {
+			writePostponed(s);
+		}
+		return;
+	}
 	session->account().local().updateDownloads(serializator(session));
 	session->account().local().updatePausedDownloads(
 		[this, weak = base::make_weak(session)]()
