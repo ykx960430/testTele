@@ -98,6 +98,12 @@ jobs:
           path: D:\a\testTele\Libraries
           key: prepare-${{ hashFiles('Telegram/build/prepare/prepare.py') }}-${{ hashFiles('Telegram/build/qt_version.py') }}
 
+      - name: Restore ThirdParty cache
+        uses: actions/cache@v4
+        with:
+          path: D:\a\testTele\ThirdParty
+          key: prepare-tp-${{ hashFiles('Telegram/build/prepare/prepare.py') }}-${{ hashFiles('Telegram/build/qt_version.py') }}
+
       - name: Clone CMake submodules
         shell: bash
         run: |
@@ -171,6 +177,18 @@ jobs:
             exit /b %ERRORLEVEL%
           )
         timeout-minutes: 360
+
+      - name: Report prepared sizes
+        shell: bash
+        run: |
+          echo "== Libraries =="
+          du -sh /d/a/testTele/Libraries 2>/dev/null || echo "missing"
+          echo "== ThirdParty =="
+          du -sh /d/a/testTele/ThirdParty 2>/dev/null || echo "missing"
+          echo "== Libraries cache_keys =="
+          ls /d/a/testTele/Libraries/win64/cache_keys 2>/dev/null | wc -l
+          echo "== ThirdParty cache_keys =="
+          ls /d/a/testTele/ThirdParty/cache_keys 2>/dev/null | wc -l
 
       - name: Verify Qt installed
         shell: cmd
