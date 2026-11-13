@@ -304,10 +304,22 @@ jobs:
           IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
         timeout-minutes: 300
 
+      - name: Verify executable produced
+        shell: cmd
+        run: |
+          IF NOT EXIST "D:\out\Debug\AyuGram.exe" (
+            ECHO AyuGram.exe NOT found in D:\out\Debug
+            DIR D:\out\Debug
+            EXIT /B 1
+          )
+          ECHO AyuGram.exe EXISTS
+          DIR D:\out\Debug\AyuGram.exe
+
       - name: Upload Artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Telegram-Windows-Debug
-          path: D:\out\Debug\Telegram.exe
+          path: D:\out\Debug\AyuGram.exe
+          if-no-files-found: error
           retention-days: 14
