@@ -41,8 +41,7 @@ mtpFileLoader::mtpFileLoader(
 	cacheTag,
 	startOffset)
 , DownloadMtprotoTask(&session->downloader(), location, origin)
-, _nextRequestOffset(startOffset)
-, _startOffset(startOffset) {
+, _nextRequestOffset(startOffset) {
 }
 
 mtpFileLoader::mtpFileLoader(
@@ -69,8 +68,7 @@ mtpFileLoader::mtpFileLoader(
 	&session->downloader(),
 	session->serverConfig().webFileDcId,
 	{ location })
-, _nextRequestOffset(startOffset)
-, _startOffset(startOffset) {
+, _nextRequestOffset(startOffset) {
 }
 
 mtpFileLoader::mtpFileLoader(
@@ -97,8 +95,7 @@ mtpFileLoader::mtpFileLoader(
 	&session->downloader(),
 	session->serverConfig().webFileDcId,
 	{ location })
-, _nextRequestOffset(startOffset)
-, _startOffset(startOffset) {
+, _nextRequestOffset(startOffset) {
 }
 
 mtpFileLoader::mtpFileLoader(
@@ -125,8 +122,7 @@ mtpFileLoader::mtpFileLoader(
 	&session->downloader(),
 	session->serverConfig().webFileDcId,
 	{ location })
-, _nextRequestOffset(startOffset)
-, _startOffset(startOffset) {
+, _nextRequestOffset(startOffset) {
 }
 
 mtpFileLoader::~mtpFileLoader() {

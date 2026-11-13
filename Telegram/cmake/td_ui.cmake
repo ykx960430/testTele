@@ -66,6 +66,7 @@ set(style_files
     calls/calls.style
     export/view/export.style
     info/info.style
+    info/downloads/info_downloads_big.style
     info/profile/info_profile_actions.style
     info/profile/info_profile_top_bar.style
     info/channel_statistics/boosts/giveaway/giveaway.style

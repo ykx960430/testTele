@@ -554,6 +554,7 @@ void WrapWidget::setupTopBarMenuToggle() {
 			}
 		}, _topBar->lifetime());
 	} else if (section.type() == Section::Type::DownloadsBig) {
+		addTopBarMenuButton();
 	} else if (key.giftsPeer()) {
 		addTopBarMenuButton();
 	} else if (section.type() == Section::Type::Statistics) {

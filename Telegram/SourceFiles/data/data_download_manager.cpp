@@ -39,6 +39,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "styles/style_layers.h"
 
+#include <QtCore/QJsonArray>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
+
 namespace Data {
 namespace {
 
@@ -806,6 +810,7 @@ void DownloadManager::pauseAll(Main::Session *onlyInSession) {
 					document->pauseLoad(&descriptor.ready);
 					descriptor.documentId = document->id;
 					descriptor.downloadType = DownloadType::Document;
+					descriptor.displayName = document->filename();
 				} else if (const auto photo = object.photo) {
 					descriptor.photoId = photo->id;
 					descriptor.downloadType = DownloadType::Photo;
@@ -813,6 +818,11 @@ void DownloadManager::pauseAll(Main::Session *onlyInSession) {
 				descriptor.itemIdPeer = item->history()->peer->id.value;
 				descriptor.itemIdMsg = item->id.bare;
 				descriptor.peerAccessHash = PeerAccessHash(item->history()->peer);
+				descriptor.sourceTitle = item->history()->peer->name();
+				if (descriptor.displayName.isEmpty()) {
+					descriptor.displayName = QFileInfo(
+						descriptor.path).fileName();
+				}
 				descriptor.reason = PauseReason::Auto;
 				_paused.push_back(std::move(descriptor));
 			}
@@ -831,8 +841,8 @@ void DownloadManager::pauseAll(Main::Session *onlyInSession) {
 	}
 	if (!_paused.empty()) {
 		_pausedListChanges.fire({});
+		flushPaused();
 	}
-	writePostponed(nullptr);
 }
 
 void DownloadManager::pauseOne(not_null<const HistoryItem*> item) {
@@ -850,6 +860,7 @@ void DownloadManager::pauseOne(not_null<const HistoryItem*> item) {
 		document->pauseLoad(&descriptor.ready);
 		descriptor.documentId = document->id;
 		descriptor.downloadType = DownloadType::Document;
+		descriptor.displayName = document->filename();
 	} else if (const auto photo = it->object.photo) {
 		descriptor.photoId = photo->id;
 		descriptor.downloadType = DownloadType::Photo;
@@ -857,27 +868,87 @@ void DownloadManager::pauseOne(not_null<const HistoryItem*> item) {
 	descriptor.itemIdPeer = item->history()->peer->id.value;
 	descriptor.itemIdMsg = item->id.bare;
 	descriptor.peerAccessHash = PeerAccessHash(item->history()->peer);
+	descriptor.sourceTitle = item->history()->peer->name();
+	if (descriptor.displayName.isEmpty()) {
+		descriptor.displayName = QFileInfo(descriptor.path).fileName();
+	}
 	descriptor.reason = PauseReason::User;
 	_paused.push_back(std::move(descriptor));
 
 	const auto i = (it - data.downloading.begin());
 	remove(data, data.downloading.begin() + i);
 	_pausedListChanges.fire({});
-	writePostponed(nullptr);
+	flushPaused();
 }
 
 bool DownloadManager::resumeOne(const PausedDownloadDescriptor &descriptor) {
-	for (auto i = _paused.begin(); i != _paused.end(); ++i) {
-		if (i->documentId == descriptor.documentId
-			&& i->photoId == descriptor.photoId
-			&& i->itemIdMsg == descriptor.itemIdMsg) {
-			_paused.erase(i);
-			_pausedListChanges.fire({});
-			writePostponed(nullptr);
-			return true;
+	if (descriptor.downloadType != DownloadType::Document) {
+		return false;
+	}
+	const auto i = ranges::find_if(_paused, [&](
+			const PausedDownloadDescriptor &d) {
+		return (d.documentId == descriptor.documentId)
+			&& (d.itemIdPeer == descriptor.itemIdPeer)
+			&& (d.itemIdMsg == descriptor.itemIdMsg);
+	});
+	if (i == _paused.end() || i->path.isEmpty()) {
+		return false;
+	}
+	const auto paused = *i;
+	const auto itemId = FullMsgId(
+		PeerId(paused.itemIdPeer),
+		MsgId(paused.itemIdMsg));
+	auto item = (HistoryItem*)nullptr;
+	auto document = (DocumentData*)nullptr;
+	for (auto &entry : _sessions) {
+		const auto found = entry.first->data().message(itemId);
+		const auto candidate = found ? found->document() : nullptr;
+		if (candidate && (candidate->id == paused.documentId)) {
+			item = found;
+			document = candidate;
+			break;
 		}
 	}
-	return false;
+	if (!document) {
+		return false;
+	}
+	// WHY: the download may have finished or been restarted from the chat, in
+	// which case resuming is impossible and the record would never go away.
+	if (document->loading() || !document->filepath(true).isEmpty()) {
+		_paused.erase(i);
+		_pausedListChanges.fire({});
+		flushPaused();
+		return true;
+	}
+	// Resuming needs the temp file as the already downloaded prefix, at least
+	// as large as the recorded ready offset. Otherwise the loader would be
+	// asked for offsets past the end of a freshly created empty file, which
+	// would leave a zero-filled gap in it.
+	const auto partial = QFileInfo(paused.path + u".temp"_q);
+	const auto partialSize = partial.exists() ? partial.size() : 0;
+	if (paused.ready > 0 && partialSize < paused.ready) {
+		// WHY: keep the shown progress in sync with what is actually on disk.
+		i->ready = partialSize;
+		_pausedListChanges.fire({});
+		flushPaused();
+		return false;
+	}
+	document->resumeLoad(paused.ready);
+	document->save(Data::FileOrigin(itemId), paused.path);
+	if (!document->loading()) {
+		// The download did not actually start (for example the temp file was
+		// too short to resume from), so keep the paused record instead of
+		// dropping it silently.
+		return false;
+	}
+	_paused.erase(i);
+	_pausedListChanges.fire({});
+	flushPaused();
+	addLoading({
+		.item = item,
+		.document = document,
+	});
+	return true;
 }
 
 void DownloadManager::cancelPaused(
@@ -888,7 +959,7 @@ void DownloadManager::cancelPaused(
 	if (i != _paused.end()) {
 		_paused.erase(i);
 		_pausedListChanges.fire({});
-		writePostponed(nullptr);
+		flushPaused();
 	}
 }
 
@@ -1321,6 +1392,13 @@ void DownloadManager::writePostponed(Main::Session *session) {
 	});
 }
 
+void DownloadManager::flushPaused() {
+	writePostponed(nullptr);
+	for (auto &[session, data] : _sessions) {
+		session->account().local().writeLocationsForce();
+	}
+}
+
 Fn<std::optional<QByteArray>()> DownloadManager::serializator(
 		not_null<Main::Session*> session) const {
 	return [this, weak = base::make_weak(session)]()
@@ -1512,33 +1590,148 @@ void DownloadManager::deserializePaused(const QByteArray &serialized) {
 			_paused.clear();
 			return;
 		}
+		// WHY: builds before the path fix stored the .temp path as the final
+		// destination, which would make a resumed download write to <name>.temp.
+		if (d.path.endsWith(u".temp"_q)
+			&& d.ready > 0
+			&& QFileInfo(d.path).exists()
+			&& !QFileInfo(d.path + u".temp"_q).exists()) {
+			d.path.chop(5);
+		}
 		_paused.push_back(std::move(d));
 	}
 }
 
 void DownloadManager::validatePausedDownloads() {
 	for (auto &d : _paused) {
-		if (d.path.isEmpty()) continue;
-		const auto tempPath = d.path + u".temp"_q;
-		auto info = QFileInfo(tempPath);
-		if (info.exists()) {
-			d.path = tempPath;
-			const auto actual = info.size();
-			if (actual < d.ready) {
-				d.ready = actual;
-			}
+		if (d.path.isEmpty()) {
 			continue;
 		}
-		info = QFileInfo(d.path);
-		if (!info.exists()) {
+		const auto partial = QFileInfo(d.path + u".temp"_q);
+		const auto complete = QFileInfo(d.path);
+		if (!partial.exists()) {
+			// Resuming needs the temp file as the already downloaded prefix.
+			// Without it the parts would be requested at their original
+			// offsets past the end of a freshly created empty file, which
+			// would leave a zero-filled gap in it.
 			d.ready = 0;
-			continue;
-		}
-		const auto actual = info.size();
-		if (actual < d.ready) {
+		} else if (const auto actual = partial.size(); actual < d.ready) {
 			d.ready = actual;
 		}
+		if (d.displayName.isEmpty()) {
+			d.displayName = complete.fileName();
+		}
 	}
+}
+
+QString DownloadManager::exportPausedJson() const {
+	if (_paused.empty()) {
+		return QString();
+	}
+	auto items = QJsonArray();
+	for (const auto &d : _paused) {
+		auto object = QJsonObject();
+		object.insert(u"documentId"_q, QString::number(d.documentId));
+		object.insert(u"photoId"_q, QString::number(d.photoId));
+		object.insert(u"downloadType"_q, int(d.downloadType));
+		object.insert(u"itemIdPeer"_q, QString::number(d.itemIdPeer));
+		object.insert(u"itemIdMsg"_q, QString::number(d.itemIdMsg));
+		object.insert(u"peerAccessHash"_q, QString::number(d.peerAccessHash));
+		object.insert(u"ready"_q, QString::number(d.ready));
+		object.insert(u"total"_q, QString::number(d.total));
+		object.insert(u"started"_q, QString::number(d.started));
+		object.insert(u"reason"_q, int(d.reason));
+		object.insert(u"path"_q, d.path);
+		object.insert(u"displayName"_q, d.displayName);
+		object.insert(u"sourceTitle"_q, d.sourceTitle);
+		items.append(object);
+	}
+	auto root = QJsonObject();
+	root.insert(u"app"_q, u"AyuGram"_q);
+	root.insert(u"format"_q, u"downloads"_q);
+	root.insert(u"version"_q, 1);
+	root.insert(u"exportedAt"_q, double(base::unixtime::now()));
+	root.insert(u"items"_q, items);
+	return QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Indented));
+}
+
+std::optional<int> DownloadManager::importPausedJson(const QString &json) {
+	auto error = QJsonParseError();
+	const auto document = QJsonDocument::fromJson(json.toUtf8(), &error);
+	if (error.error != QJsonParseError::NoError || !document.isObject()) {
+		return std::nullopt;
+	}
+	const auto root = document.object();
+	if (root.value(u"format"_q).toString() != u"downloads"_q) {
+		return std::nullopt;
+	}
+	if (root.value(u"version"_q).toInt() != 1) {
+		return std::nullopt;
+	}
+	const auto items = root.value(u"items"_q).toArray();
+	const auto readInt = [](const QJsonObject &object, const QString &key) {
+		const auto value = object.value(key);
+		if (value.isString()) {
+			return qint64(value.toString().toLongLong());
+		}
+		return qint64(value.toDouble());
+	};
+	auto added = 0;
+	for (const auto &value : items) {
+		const auto object = value.toObject();
+		auto descriptor = PausedDownloadDescriptor();
+		descriptor.documentId = object.value(
+			u"documentId"_q).toString().toULongLong();
+		descriptor.photoId = object.value(u"photoId"_q).toString().toULongLong();
+		const auto downloadType = readInt(object, u"downloadType"_q);
+		// WHY: photos cannot be resumed and there is no way to dismiss a paused
+		// photo row, so importing one would leave a permanently stuck entry.
+		if (downloadType != int(DownloadType::Document)) {
+			continue;
+		}
+		descriptor.downloadType = DownloadType(downloadType);
+		descriptor.itemIdPeer = object.value(
+			u"itemIdPeer"_q).toString().toLongLong();
+		descriptor.itemIdMsg = object.value(
+			u"itemIdMsg"_q).toString().toLongLong();
+		descriptor.peerAccessHash = object.value(
+			u"peerAccessHash"_q).toString().toULongLong();
+		descriptor.ready = readInt(object, u"ready"_q);
+		descriptor.total = readInt(object, u"total"_q);
+		descriptor.started = readInt(object, u"started"_q);
+		const auto reason = readInt(object, u"reason"_q);
+		if (reason != int(PauseReason::User)
+			&& reason != int(PauseReason::Auto)
+			&& reason != int(PauseReason::Network)) {
+			continue;
+		}
+		descriptor.reason = PauseReason(reason);
+		descriptor.path = object.value(u"path"_q).toString();
+		descriptor.displayName = object.value(u"displayName"_q).toString();
+		descriptor.sourceTitle = object.value(u"sourceTitle"_q).toString();
+		if (descriptor.path.isEmpty() || !descriptor.documentId) {
+			continue;
+		}
+		const auto duplicate = ranges::any_of(_paused, [&](
+				const PausedDownloadDescriptor &d) {
+			return (d.documentId == descriptor.documentId)
+				&& (d.photoId == descriptor.photoId)
+				&& (d.itemIdPeer == descriptor.itemIdPeer)
+				&& (d.itemIdMsg == descriptor.itemIdMsg);
+		});
+		if (duplicate) {
+			continue;
+		}
+		_paused.push_back(std::move(descriptor));
+		++added;
+	}
+	if (!added) {
+		return added;
+	}
+	validatePausedDownloads();
+	_pausedListChanges.fire({});
+	flushPaused();
+	return added;
 }
 
 void DownloadManager::untrack(not_null<Main::Session*> session) {

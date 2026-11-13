@@ -22,10 +22,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/ui_integration.h"
 #include "data/data_session.h"
 #include "data/data_chat_filters.h"
+#include "data/data_download_manager.h"
 #include "data/data_user.h"
 #include "data/data_peer_values.h"
 #include "data/data_premium_limits.h"
 #include "data/data_unread_value.h"
+#include "info/downloads/info_downloads_big_widget.h"
 #include "lang/lang_keys.h"
 #include "ui/filter_icons.h"
 #include "ui/wrap/vertical_layout.h"
@@ -124,6 +126,11 @@ FiltersMenu::~FiltersMenu() = default;
 void FiltersMenu::setup() {
 	setupDragAndDrop();
 	setupMainMenuIcon();
+	setupDownloadsButton();
+	Core::App().settings().chatFiltersTabsModeValue(
+	) | rpl::skip(1) | rpl::on_next([=] {
+		setupDownloadsButton();
+	}, _outer.lifetime());
 	_menu.setIsMenuButton(true);
 	_menu.setAccessibleName(tr::lng_main_menu(tr::now));
 
@@ -448,6 +455,60 @@ void FiltersMenu::refresh() {
 		refocus->setFocus();
 		scrollToButton(refocus);
 	}
+}
+
+void FiltersMenu::setupDownloadsButton() {
+	if (_downloads) {
+		_downloads = nullptr;
+	}
+	const auto mode = tabsMode();
+	const auto &st = (mode == Ui::ChatsFiltersTabsMode::TextOnly)
+		? st::windowFiltersDownloadsTextOnly
+		: (mode == Ui::ChatsFiltersTabsMode::IconsOnly)
+		? st::windowFiltersDownloadsIconsOnly
+		: st::windowFiltersDownloads;
+	_downloads = base::unique_qptr<Ui::SideBarButton>(
+		_container->insert(
+			0,
+			object_ptr<Ui::SideBarButton>(
+				_container,
+				TextWithEntities{ tr::lng_downloads_section(tr::now) },
+				st,
+				Core::TextContext({
+					.session = &_session->session(),
+				}))));
+	const auto raw = _downloads.get();
+	raw->setShowIcon(mode != Ui::ChatsFiltersTabsMode::TextOnly);
+	raw->setShowText(mode != Ui::ChatsFiltersTabsMode::IconsOnly);
+	raw->setClickedCallback([=] {
+		_session->showSection(Info::DownloadsBig::Make(
+			_session->session().user()));
+	});
+
+	auto &manager = Core::App().downloadManager();
+	updateDownloadsBadge();
+	rpl::merge(
+		manager.loadingListChanges() | rpl::map_to(true),
+		manager.pausedListChanges() | rpl::map_to(true),
+		AyuSettings::getInstance().hideNotificationCountersValue(
+		) | rpl::map_to(true)
+	) | rpl::on_next([=] {
+		updateDownloadsBadge();
+	}, raw->lifetime());
+}
+
+void FiltersMenu::updateDownloadsBadge() {
+	if (!_downloads) {
+		return;
+	}
+	auto &manager = Core::App().downloadManager();
+	const auto count = manager.loadingCount() + manager.pausedCount();
+	const auto hidden = AyuSettings::getInstance().hideNotificationCounters();
+	_downloads->setBadge(
+		(!hidden && count > 0)
+			? ((count > 999) ? u"99+"_q : QString::number(count))
+			: QString(),
+		false);
 }
 
 void FiltersMenu::setupList() {

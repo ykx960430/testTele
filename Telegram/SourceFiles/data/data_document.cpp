@@ -1229,6 +1229,9 @@ void DocumentData::save(
 		LoadFromCloudSetting fromCloud,
 		bool autoLoading) {
 	Test::NotifyDocumentSave(this, toFile, autoLoading);
+	// WHY: the offset must not outlive this call, otherwise a later unrelated
+	// save() would resume a fresh download from a stale position.
+	const auto pendingResumeOffset = base::take(_pendingResumeOffset);
 	if (const auto media = activeMediaView(); media && media->loaded(true)) {
 		const auto &l = location(true);
 		if (!toFile.isEmpty()) {
@@ -1293,7 +1296,8 @@ void DocumentData::save(
 				size,
 				fromCloud,
 				autoLoading,
-				cacheTag());
+				cacheTag(),
+				pendingResumeOffset);
 		} else if (!_access && !_url.isEmpty()) {
 			_loader = std::make_unique<webFileLoader>(
 				&session(),
@@ -1321,7 +1325,8 @@ void DocumentData::save(
 				(saveToCache() ? LoadToCacheAsWell : LoadToFileOnly),
 				fromCloud,
 				autoLoading,
-				cacheTag());
+				cacheTag(),
+				pendingResumeOffset);
 		}
 		handleLoaderUpdates();
 	}
@@ -1395,7 +1400,9 @@ bool DocumentData::paused() const {
 }
 
 void DocumentData::pauseLoad(int64 *outReadyBytes) {
-	if (!loading()) return;
+	if (!loading()) {
+		return;
+	}
 	if (_loader) {
 		_loader->pause();
 		if (outReadyBytes) {
@@ -1403,17 +1410,13 @@ void DocumentData::pauseLoad(int64 *outReadyBytes) {
 		}
 	}
 	_flags |= Flag::DownloadPaused;
+	destroyLoader();
 	_owner->documentLoadDone(this);
 }
 
 void DocumentData::resumeLoad(int64 offset) {
 	_flags &= ~(Flag::DownloadCancelled | Flag::DownloadPaused);
-	if (_loader && _loader->paused()) {
-		_loader->setStartOffset(offset);
-		_loader->resume();
-	} else {
-		_loader = nullptr;
-	}
+	_pendingResumeOffset = offset;
 	_owner->documentLoadDone(this);
 }
 

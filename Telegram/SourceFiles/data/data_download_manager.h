@@ -167,6 +167,12 @@ public:
 	bool resumeOne(const PausedDownloadDescriptor &descriptor);
 	void cancelPaused(not_null<const PausedDownloadDescriptor*> descriptor);
 
+	// Exports the paused downloads as JSON text (empty if there are none) and
+	// merges a previously exported list back, returning the added count or
+	// std::nullopt if the text is not a download list.
+	[[nodiscard]] QString exportPausedJson() const;
+	[[nodiscard]] std::optional<int> importPausedJson(const QString &json);
+
 	[[nodiscard]] int loadingCount(
 		Main::Session *onlyInSession = nullptr) const;
 	[[nodiscard]] int pausedCount() const;
@@ -242,6 +248,7 @@ private:
 
 	void finishFilesDelete(DeleteFilesDescriptor &&descriptor);
 	void writePostponed(Main::Session *session);
+	void flushPaused();
 	[[nodiscard]] Fn<std::optional<QByteArray>()> serializator(
 		not_null<Main::Session*> session) const;
 	[[nodiscard]] std::vector<DownloadedId> deserialize(

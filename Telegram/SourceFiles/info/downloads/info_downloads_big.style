@@ -1,0 +1,40 @@
+/*
+This file is part of Telegram Desktop,
+the official desktop application for the Telegram messaging service.
+
+For license and copyright information please follow this link:
+https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+*/
+using "ui/basic.style";
+
+downloadsBigPadding: margins(16px, 12px, 16px, 12px);
+
+downloadsBigHeaderFont: font(13px semibold);
+downloadsBigHeaderFg: windowBoldFg;
+downloadsBigHeaderTop: 16px;
+downloadsBigHeaderHeight: 30px;
+downloadsBigHeaderBottom: 4px;
+
+downloadsBigRowHeight: 72px;
+downloadsBigRowBgOver: windowBgOver;
+
+downloadsBigIconSize: 40px;
+downloadsBigIconSkip: 12px;
+downloadsBigIconRadius: 10px;
+downloadsBigIconBg: windowBgOver;
+downloadsBigItemIcon: icon {{ "menu/download", windowSubTextFg }};
+
+downloadsBigNameFont: font(14px semibold);
+downloadsBigNameFg: windowFg;
+downloadsBigStatusFont: font(12px);
+downloadsBigStatusFg: windowSubTextFg;
+downloadsBigStatusTop: 2px;
+
+downloadsBigProgressHeight: 4px;
+downloadsBigProgressTop: 7px;
+downloadsBigProgressBg: windowBgOver;
+downloadsBigProgressFg: activeLineFg;
+
+downloadsBigEmptyTop: 72px;
+downloadsBigEmptyFont: font(14px);
+downloadsBigEmptyFg: windowSubTextFg;

@@ -117,8 +117,6 @@ public:
 		return _paused;
 	}
 	void pause();
-	void resume();
-	void setStartOffset(int64 offset);
 
 	[[nodiscard]] bool loadingLocal() const {
 		return (_localStatus == LocalStatus::Loading);

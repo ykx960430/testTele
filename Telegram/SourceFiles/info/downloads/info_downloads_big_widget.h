@@ -9,13 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "info/info_content_widget.h"
 
-namespace Ui {
-class ScrollArea;
-} // namespace Ui
-
-namespace Data {
 class UserData;
-} // namespace Data
 
 namespace Info {
 class Controller;
@@ -48,11 +42,18 @@ public:
 		const QRect &geometry,
 		not_null<Memento*> memento);
 
+	void fillTopBarMenu(const Ui::Menu::MenuCallback &addAction) override;
+
 	rpl::producer<QString> title() override;
 
 private:
 	void saveState(not_null<Memento*> memento);
 	void restoreState(not_null<Memento*> memento);
+
+	void exportPausedList();
+	void importPausedList();
+	void importPausedListDone(const QString &json);
+	void resumeAllPaused();
 
 	std::shared_ptr<ContentMemento> doCreateMemento() override;
 

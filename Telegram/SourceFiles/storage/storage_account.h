@@ -113,6 +113,10 @@ public:
 		Fn<std::optional<QByteArray>()> pausedDownloadsSerialize);
 	[[nodiscard]] QByteArray pausedDownloadsSerialized() const;
 
+	// Writes the pending file locations right now instead of waiting for the
+	// delayed write, so that a quit right after pausing keeps the pause list.
+	void writeLocationsForce();
+
 	[[nodiscard]] EncryptionKey cacheKey() const;
 	[[nodiscard]] QString cachePath() const;
 	[[nodiscard]] Cache::Database::Settings cacheSettings() const;

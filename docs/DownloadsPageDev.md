@@ -1191,29 +1191,45 @@ download_progress : ... {}
 | T2A.6 | WrapWidget 路由守卫 (setupTopBarWidgets / activeChat / requireTopBarSearch) | `info_wrap_widget.cpp` | ✅ |
 | T2A.7 | CMakeLists.txt 添加新文件 | `Telegram/CMakeLists.txt` | ✅ |
 
-### Phase 2-B：BigPage 视觉层 ⏳ 待开发
+### Phase 2-B：BigPage 视觉层 ✅ 已完成（工作区，未提交）
 
-**建议执行顺序**（每个子任务独立 commit，便于 review 和回滚）：
+**实现方式调整**：为降低第一版的复杂度与风险，采用单一 `InnerWidget`（自绘行）而不是多个独立 ItemWidget +
+独立 Provider 的组件树。Stat 卡片与 FilterTabs 暂时不做，先用「总计行 + 三个分组标题」代替，
+后续可以在同一 `InnerWidget` 上增量加视觉层，不需要重构数据流。
 
-| # | 任务 | 文件 | 估计 |
-|---|------|------|------|
-| T2B.1 | StatsAggregator 逻辑（统计各类型文件数+大小） | `info/downloads/info_downloads_big_widget.h/.cpp` 或独立文件 | 2h |
-| T2B.2 | FilterTabs UI（全部/视频/图片/文档/其他） | 同上 | 1.5h |
-| T2B.3 | DownloadingItemWidget（进度条+状态机+文件名+来源） | 独立文件或 big_widget 内部 | 3h |
-| T2B.4 | DownloadedItemWidget（打开/在文件夹显示/删除） | 同上 | 2h |
-| T2B.5 | BigPageWidget 容器重构（整合 Stats+Tabs+双列表） | `info_downloads_big_widget.cpp` | 2h |
-| T2B.6 | 视觉样式 `.style` 文件 | `info/downloads/info_downloads_big.style` 或复用 `style_info` | 2h |
+| # | 任务 | 实际实现 | 状态 |
+|---|------|---------|------|
+| T2B.1 | 统计信息 | `buildRows()` 里统计 `loadedList()` 总大小，产出 `lng_downloads_big_total` 的 Stats 行 | ✅ |
+| T2B.2 | FilterTabs | 暂缓（改用分组标题：Downloading / Paused / Downloaded） | ⏸ 后续 |
+| T2B.3 | 下载中列表项 | `paintItem()`：圆角图标框 + 文件名（中间省略）+ 「已下载 x / 总大小」+ 圆角进度条 | ✅ |
+| T2B.4 | 已完成列表项 | 同上布局，状态行显示文件大小；点击 → `File::ShowInFolder(path)` | ✅ |
+| T2B.5 | 容器重构 | `InnerWidget : Ui::RpWidget` + `resizeGetHeight()` + `rebuild()/relayout()`，`Widget::setInnerWidget` 挂载 | ✅ |
+| T2B.6 | 视觉样式 | 新增 `info/downloads/info_downloads_big.style`，已注册进 `td_ui.cmake` 的 `style_files` | ✅ |
 
-### Phase 2-C：侧边栏入口 + 交互闭环 ⏳ 待开发
+**数据流**：`rpl::merge(loadingListChanges, pausedListChanges, loadedAdded, loadedRemoved, loadedResolveDone)`
+→ `rebuild()`；进度条单独订阅 `loadingProgressValue()` 只触发 `update()`，不重建列表（避免每帧重建行模型）。
+`rebuild()` 内有 `_rebuilding` 重入保护，因为 `resize()` 会同步回调 `resizeGetHeight()`。
 
-| # | 任务 | 文件 | 估计 |
-|---|------|------|------|
-| T2C.1 | 下载 SVG 图标 | `Resources/gui/icons/downloads.svg` | 0.5h |
-| T2C.2 | 侧边栏按钮创建 + `pausedCount` 角标信号绑定 | `window/window_filters_menu.h/.cpp` | 1.5h |
-| T2C.3 | 点击跳转 BigPage 的导航入口 (`DownloadsBig::Make(self)`) | `window_filters_menu.cpp` | 0.5h |
-| T2C.4 | 顶栏菜单（全部暂停/继续） | `info/info_wrap_widget.cpp` | 1h |
-| T2C.5 | 右键菜单（暂停/恢复/取消/在文件夹打开） | 各自 ItemWidget + `Ui::PopupMenu` | 2h |
-| T2C.6 | 文本本地化 (`lang.strings`) | `Resources/langs/lang.strings` | 0.5h |
+**当前可交互行为**（有意收敛范围）：
+
+- 暂停行 → 点击 resume（`DownloadManager::resumeOne(descriptor)`）
+- 已完成行 → 点击在文件夹中显示
+- 下载中的行**故意不可点**，避免误触暂停；暂停/取消等操作留给 T2C.4/T2C.5 的顶栏菜单与右键菜单
+
+### Phase 2-C：侧边栏入口 + 交互闭环 🚧 部分完成
+
+| # | 任务 | 实际实现 | 状态 |
+|---|------|---------|------|
+| T2C.1 | 下载图标 | 复用已有 `Resources/icons/menu/download.png`（含 @2x/@3x），未新增 SVG | ✅ |
+| T2C.2 | 侧边栏按钮 + 角标 | `FiltersMenu::setupDownloadsButton()` / `updateDownloadsBadge()`；插在 `_container` 索引 0（主菜单按钮之下、文件夹列表之上）；角标订阅 `loadingListChanges + pausedListChanges`，显示 `loadingCount + pausedCount`；随 `chatFiltersTabsMode` 切换 icon/text 显隐 | ✅ |
+| T2C.3 | 跳转 BigPage | `_downloads->setClickedCallback` → `_session->showSection(Info::DownloadsBig::Make(user))` | ✅ |
+| T2C.4 | 顶栏菜单（全部暂停/继续） | `Widget::fillTopBarMenu()` + `info_wrap_widget.cpp` 里给 `Section::Type::DownloadsBig` 加 `addTopBarMenuButton()`；菜单项：全部暂停（有下载中才显示）/ 全部继续（有暂停才显示）/ 导出下载列表 / 导入下载列表 | ✅ |
+| T2C.5 | 右键菜单（暂停/恢复/取消/在文件夹打开） | — | ⏳ |
+| T2C.6 | 文本本地化 | BigPage 的 6 个 `lng_downloads_big_*` + 顶栏菜单 9 个 `lng_downloads_*` key 全部已加 | ✅ |
+
+> 注意：`T2C.2` 的按钮在 `setup()` 中先于 `setupList()` 创建，`_list` / `_setup` / `_favorite` 是
+> 之后 `add()` 进来的，所以插入顺序天然是 `[下载][文件夹列表][收藏][编辑]`；`refresh()` 重建的只是
+> `_list` 内部的行，不会影响下载按钮。
 
 ### Phase 3：集成测试 ⏳ 待开发
 
@@ -1278,20 +1294,117 @@ download_progress : ... {}
 | `Telegram/SourceFiles/info/downloads/info_downloads_big_widget.h` | BigPage Memento + Widget + Make 工厂 |
 | `Telegram/SourceFiles/info/downloads/info_downloads_big_widget.cpp` | BigPage stub 实现 |
 
-### Phase 2-B 待新增文件（预估）
+### Phase 2-B + Phase 2-C.1–3 修改文件（工作区未提交）
+
+| 文件 | 变更类型 |
+|------|---------|
+| `Telegram/SourceFiles/info/downloads/info_downloads_big_widget.h` | 去掉错误的前置声明（`UserData` 是全局作用域）、未使用的 `InnerWidget` 成员；补 `Ui::RpWidget` 前置声明 |
+| `Telegram/SourceFiles/info/downloads/info_downloads_big_widget.cpp` | 全量重写：`Row` 行模型 + `InnerWidget` 自绘列表 + 三组分组 + 进度条 + 悬停/点击 |
+| `Telegram/cmake/td_ui.cmake` | `style_files` 注册 `info/downloads/info_downloads_big.style` |
+| `Telegram/Resources/langs/lang.strings` | 新增 6 个 `lng_downloads_big_*` key（空态/总计/三组标题/进度文案）+ 9 个顶栏菜单/导出导入/续传失败 key |
+| `Telegram/SourceFiles/window/window.style` | 新增 `windowFiltersDownloads` 与 `windowFiltersDownloadsTextOnly`（两套 tabs 模式下的尺寸/角标位置） |
+| `Telegram/SourceFiles/window/window_filters_menu.h` | 新增 `setupDownloadsButton()` / `updateDownloadsBadge()` / `_downloads` 成员 |
+| `Telegram/SourceFiles/window/window_filters_menu.cpp` | 创建侧栏下载按钮、角标订阅、跳转 BigPage |
+| `Telegram/SourceFiles/info/info_wrap_widget.cpp` | 删除 `setupTopBarWidgets` 里已失效的 `DownloadsBig` 死分支；给 `Section::Type::DownloadsBig` 加 `addTopBarMenuButton()`（顶栏 ⋮ 菜单） |
+| `Telegram/SourceFiles/data/data_download_manager.h/.cpp` | `exportPausedJson()` / `importPausedJson()` + `flushPaused()`；`pauseAll()` 结尾改 `flushPaused()`；`descriptor.displayName/sourceTitle` 填充 |
+| `Telegram/SourceFiles/storage/storage_account.h/.cpp` | `writeLocationsForce()`：取消 1s 延迟定时器并立即落盘 |
+| `Telegram/SourceFiles/storage/file_download.cpp` | `checkForOpen()` 续传分支改 `ReadWrite`；`currentOffset()` 在 `_paused` 时返回 `_pausedBytes` |
+
+### Phase 2-B + Phase 2-C 新增文件
 
 | 文件 | 说明 |
 |------|------|
-| `Telegram/SourceFiles/info/downloads/info_downloads_big_widget.cpp` | 视觉层全量重写（Stats+Tabs+列表） |
-| `Telegram/SourceFiles/info/downloads/info_downloads_big.style` | BigPage 样式定义（或内联到 .cpp） |
+| `Telegram/SourceFiles/info/downloads/info_downloads_big.style` | BigPage 全部尺寸/字体/颜色（取代「复用 style_info」的预估方案） |
 
-### Phase 2-C 待新增文件（预估）
+> 注意：style 生成器用 `NAME_WLE` 命名头文件（路径被剃掉），所以 `info/downloads/info_downloads_big.style`
+> 生成的头文件是 `styles/style_info_downloads_big.h`，不是 `style_downloads_big.h`。
 
-| 文件 | 说明 |
-|------|------|
-| `Telegram/SourceFiles/window/window_filters_menu.h` | 下载侧边栏按钮成员 |
-| `Telegram/SourceFiles/window/window_filters_menu.cpp` | 按钮创建 + Badge 信号绑定 |
-| `Telegram/Resources/gui/icons/downloads.svg` | 侧栏下载图标 |
+### 顺带修掉的四个续传正确性 bug
+
+这四个都是实测前 review 出来的，属于 Phase 1 遗留，不在原任务清单里：
+
+| 问题 | 后果 | 修法 |
+|------|------|------|
+| `FileLoader::currentOffset()` 在 `pause()` 之后返回 0 | `descriptor.ready` 被记成 0，续传从头开始 | `_paused` 时返回 `_pausedBytes`；关键是 `pause()` 必须在 `_paused = true` **之前**取偏移，否则读到的还是旧值 0 |
+| `DownloadManager::resumeOne()` 只删了暂停记录 | 「继续」是个空操作，界面点了没反应 | 定位源消息/文档 → `document->resumeLoad(ready)` + `document->save(origin, path)` + `addLoading()` |
+| `validatePausedDownloads()` 把 `d.path` 覆盖成 `path + ".temp"` | 续传会把数据写到 `file.ext.temp`，最终 rename 目标错 | 保留最终路径，只按 `.temp` 的实际 size 修正 `ready` |
+| `FileLoader::checkForOpen()` 续传分支用了 `WriteOnly` | `QFile::open(WriteOnly)` 截断已有的 `.temp`，偏移永远归零、续传退化为重新下载 | 改用 `ReadWrite` + 显式 `seek(_startOffset)` |
+
+另外 `FileLoader::checkForOpen()` 在 `_startOffset > 0` 时原本用 `WriteOnly | Append`，但 `writeResultPart()`
+是按绝对偏移 `seek(offset)` 后写入的，Append 会忽略 seek 造成数据错位；已改成 `ReadWrite` + 显式
+`seek(_startOffset)`，并夹紧到文件实际长度。这里必须用 `ReadWrite` 而不是 `WriteOnly`：
+`QFile::open(WriteOnly)` 会把已有的 `.temp` 截断成 0 字节，`ready` 就永远归零、续传退化成重新下载。
+另外 `checkForOpen()` 末尾的兜底分支（打不开 `.temp` 时回退到最终文件名 `WriteOnly`）在 `_startOffset > 0`
+时同样会截断最终文件、留下零填充空洞，已加 `_startOffset == 0` 条件，续传场景直接 `cancel(FileWriteFailure)`。
+`DocumentData::save()` 把续传偏移通过 `_pendingResumeOffset`
+→ `base::take()` → `mtpFileLoader(..., startOffset)` 一路透传，`save()` 结束时清零。
+
+### 退出不丢任务的持久化保证 + 下载列表导出/导入
+
+链路：`Application::preventsQuit()` → `downloadPreventsQuit()` → `loadingStopSilent()` → `pauseAll()`。
+
+| 环节 | 原始行为 | 问题 | 现在 |
+|------|---------|------|------|
+| `pauseAll()` 结尾 | `writePostponed(nullptr)` | 只把暂停列表塞进 `Account` 的回调，真正落盘走 `writeLocationsDelayed()` 的 1s 定时器 | 改成 `flushPaused()`：`writePostponed` + `Account::writeLocationsForce()` 立即同步写盘 |
+| `~Account()` | 只 flush `writePrefs()` / `writeMap()` | `_locationsChanged` 无人处理，1s 内退出就丢暂停列表 | 不再依赖析构；`writeLocationsForce()` 取消定时器并直接 `writeLocations()` |
+
+`writeLocations()` 内部本来就会调用 `_pausedDownloadsSerialize()`，所以「强制写 locations」
+天然覆盖暂停列表，不需要额外的存储 key。
+
+**导出 / 导入**（顶栏 ⋮ 菜单，`Widget::exportPausedList()` / `importPausedList()`）：
+
+- 导出：`DownloadManager::exportPausedJson()` → `FileDialog::GetWritePath`，默认名 `downloads.json`，
+  成功后 `Ui::Toast` 提示条数；列表为空时提示「没有可导出的内容」。
+- 导入：`FileDialog::GetOpenPath` → 读文件 → `DownloadManager::importPausedJson()`，
+  校验 `format == "downloads"` 与 `version == 1`，按 `documentId + photoId + itemIdPeer + itemIdMsg`
+  去重后合并，调用 `validatePausedDownloads()` 修正 `ready`（按 `.temp` 实际大小夹紧），
+  再 `_pausedListChanges.fire({})` + `flushPaused()`。
+- 导入**只接受 Document 条目**：photo 无法续传，且目前没有移除暂停行的入口，
+  导入一个 photo 行会留下永远删不掉的条目，所以直接跳过（导出本身不会产生 photo 条目）。
+- 全部条目重复时返回 0，UI 提示「没有新增下载」（`lng_downloads_import_empty`），
+  不再复用「Imported 0 downloads」。
+- 格式（`format: "downloads"` 作为校验标记，64 位 id 与 `ready/total/started` 用字符串避免 JSON double 精度丢失；
+  导入时 `documentId` 等字段与 `downloadType/reason` 都同时兼容字符串和数字两种形式）：
+
+```json
+{
+  "app": "AyuGram",
+  "format": "downloads",
+  "version": 1,
+  "exportedAt": 1762953600,
+  "items": [
+    {
+      "documentId": "5412375...",
+      "photoId": "0",
+      "downloadType": 0,
+      "itemIdPeer": "-1001234567890",
+      "itemIdMsg": "4242",
+      "peerAccessHash": "-6123456789...",
+      "ready": "8388608",
+      "total": "104857600",
+      "started": "1762950000",
+      "reason": 1,
+      "path": "C:/Users/x/Downloads/movie.mp4",
+      "displayName": "movie.mp4",
+      "sourceTitle": "Some Channel"
+    }
+  ]
+}
+```
+
+**已知限制**：`resumeOne()` 需要源消息在内存里（按 `FullMsgId` 在 `_sessions` 里查 `DocumentData`）才能
+重新组包下载（dc / accessHash / size 都来自消息），所以退出后立刻「继续」可能失败——失败时弹
+`lng_downloads_resume_failed` 提示，不回滚暂停记录。另外，如果文档已经下载完成或正在下载（暂停记录已过期），
+`resumeOne()` 会直接把该记录从列表里移除，不再尝试续传。列表本身（行、角标、导出内容）不依赖消息，始终可用。
+
+**续传失败时的 `ready` 同步**：若 `.temp` 不存在或比记录的 `ready` 短，`resumeOne()` 会拒绝续传并把
+`ready` 夹到 `.temp` 的实际大小（同时 `_pausedListChanges.fire({})` + `writePostponed(nullptr)`），
+界面上的进度条会立刻反映磁盘真实情况，不会一直显示过期进度。
+
+**旧版本数据的路径兼容**：在 `validatePausedDownloads` 改为保留最终路径之前，磁盘上的暂停记录里
+`path` 存的是 `<name>.temp`。`deserializePaused()` 在读取后做了一次修正：如果 `path` 以 `.temp` 结尾、
+`ready > 0`、`path` 本身存在而 `path + ".temp"` 不存在，则剥掉 `.temp` 后缀还原成最终路径。
+不做这层修正的话，续传会把文件写到 `<name>.temp`，真正的 `<name>` 永远不会出现。
 
 ---
 
@@ -1455,10 +1568,24 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 
 - [x] 用户审阅并确认全文
 - [x] 如有分歧：修改设计
-- [ ] **下一会话启动 Phase 1 开发**
-- [ ] 生成可独立编译的开发任务单
-- [ ] Phase 1 完成后立即进入用户测试环节
-- [x] 在新会话启动编码（已就位）
+- [x] Phase 1 开发（tag `v0.1.0-phase1-pause-resume`）
+- [x] Phase 2-A BigPage 骨架（tag `v0.1.1-before-bigpage`）
+- [x] Phase 2-B BigPage 内容层（工作区，未编译验证）
+- [x] Phase 2-C.1–3 侧边栏入口 + 图标 + 角标 + 跳转（工作区，未编译验证）
+- [x] Phase 2-C.4 顶栏 ⋮ 菜单（全部暂停 / 全部继续 / 导出下载列表 / 导入下载列表）
+- [x] Phase 2-C.6 菜单文案本地化
+- [x] 退出持久化保证（`writeLocationsForce` + `flushPaused`）
+- [x] 续传偏移两个 bug（`currentOffset()` / `checkForOpen()` 截断）
+- [x] Code review 一轮：`pause()` 取偏移顺序、BigPage done 条目重复、`_pendingResumeOffset` 泄漏、暂停记录强制落盘
+- [ ] **本地/CI 重建 Debug，验证侧边栏入口、BigPage、导出/导入可见可用**
+- [ ] Phase 2-C.5 右键菜单（暂停/恢复/取消/在文件夹打开）
+- [ ] Phase 3 集成测试
+
+> ⚠️ 因为新增了 `.style` 文件、新样式符号（`st::windowFiltersDownloads`、`st::downloadsBig*`）
+> 和新 lang key（`lt_ready` 以及 15 个 `lng_downloads_*`），必须重新 configure + 构建才会生成
+> `styles/style_info_downloads_big.h` 和 lang 头文件；只增量编译已有的 .cpp 是看不到入口的。
+> 另外本项目所有产物都由 GitHub Actions 从 git 提交构建（`git push github dev`），工作区未提交的改动
+> 不会出现在产物里——这一点是上一轮「看不到侧边栏入口」的直接原因。
 
 ---
 
@@ -1467,15 +1594,17 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 ```
 你好，我是 CatPaw（妙手），继续 AyuGramDesktop 下载系统重构项目。
 
-前一会话已完成：
-- 项目代码调研（DownloadManager / FileLoader / DocumentData / Application / FiltersMenu / InfoSection）
-- 开发文档编写（docs/DownloadsPageDev.md）
-- 文档已分 Phase 1（核心下载续传）和 Phase 2（交互优化）两个阶段
-- Git 初始提交 + 锚点 tag v0.0.1-before-download-refactor 已落盘
+已完成：
+- Phase 1（暂停/续传核心 + 序列化 + 退出行为），tag v0.1.0-phase1-pause-resume
+- Phase 2-A（BigPage Section 注册骨架），tag v0.1.1-before-bigpage
+- Phase 2-B（BigPage 真实内容：分组 + 行模型 + 进度条 + 点击恢复/打开文件夹）
+- Phase 2-C.1-4 + 2-C.6（侧边栏下载入口 + 角标 + 跳转 BigPage；顶栏 ⋮ 菜单：全部暂停/继续 + 导出/导入下载列表；文案全量本地化）
+- 退出不丢任务：`Account::writeLocationsForce()` + `DownloadManager::flushPaused()`
+- 顺手修掉四个续传正确性 bug（currentOffset / resumeOne / validatePausedDownloads / checkForOpen 截断）
+- Code review 一轮修复：`pause()` 取偏移顺序 / BigPage done 条目重复 / `_pendingResumeOffset` 泄漏 / `pauseOne`·`resumeOne`·`cancelPaused` 强制落盘
 
-目标会话：按照 Phase 1 任务清单逐步编码。
-首任务：T1.1 PausedDownloadDescriptor 结构体 + PauseReason 枚举 → data_download_manager.h
-完成后编译验证 → T1.2 → ... → T1.15，完成一轮后交付 Debug build 测试。
+下一步：先推 CI 出包验证侧边栏入口 + BigPage + 导出/导入，然后 Phase 2-C.5 右键菜单，
+再做 Phase 3 集成测试。详细任务表见「六、开发任务拆分」。
 ```
 
 ---

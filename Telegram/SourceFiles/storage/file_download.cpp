@@ -271,9 +271,18 @@ bool FileLoader::checkForOpen() {
 		return true;
 	}
 	if (_startOffset > 0) {
-		_fileIsOpen = _file.open(QIODevice::WriteOnly | QIODevice::Append);
+		// ReadWrite keeps the already downloaded prefix, WriteOnly truncates it,
+		// and Append would force every part write to the end of the file.
+		_fileIsOpen = _file.open(QIODevice::ReadWrite);
 		if (_fileIsOpen && _file.size() < _startOffset) {
-			_startOffset = _file.size();
+			// The temp file is shorter than the offset we were asked to resume
+			// from. The parts would still be requested at their original offsets,
+			// so writing them here would leave a zero-filled gap in the file.
+			// Fail the load instead of producing a silently corrupted file.
+			cancel(FailureReason::FileWriteFailure);
+			return false;
+		}
+		if (_fileIsOpen) {
 			_file.seek(_startOffset);
 		}
 	} else {
@@ -282,7 +291,9 @@ bool FileLoader::checkForOpen() {
 	if (_fileIsOpen) {
 		return true;
 	}
-	if (_tempFilename != _filename) {
+	// WHY: for an offset resume the temp file is the only safe target,
+	// falling back to the final name would truncate it and leave a gap.
+	if (_startOffset == 0 && _tempFilename != _filename) {
 		_file.setFileName(_filename);
 		_fileIsOpen = _file.open(QIODevice::WriteOnly);
 		if (_fileIsOpen) {
@@ -363,27 +374,19 @@ void FileLoader::pause() {
 	if (_cancelled || _finished || _paused) return;
 
 	_finished = true;
-	_paused = true;
-	_pausedBytes = currentOffset();
-
 	cancelHook();
-
 	if (_fileIsOpen) {
 		_file.flush();
+	}
+	// WHY: the offset must be read after the buffered writes reach the file,
+	// otherwise the recorded ready value would be short by the pending buffer.
+	// Raising _paused first would make currentOffset() return the stale value.
+	_pausedBytes = currentOffset();
+	_paused = true;
+	if (_fileIsOpen) {
 		_file.close();
 		_fileIsOpen = false;
 	}
-}
-
-void FileLoader::resume() {
-	if (!_paused) return;
-	_paused = false;
-	_cancelled = false;
-	_finished = false;
-}
-
-void FileLoader::setStartOffset(int64 offset) {
-	_startOffset = offset;
 }
 
 void FileLoader::cancel() {
@@ -420,6 +423,9 @@ void FileLoader::cancel(FailureReason fail) {
 }
 
 int64 FileLoader::currentOffset() const {
+	if (_paused) {
+		return _pausedBytes;
+	}
 	return (_fileIsOpen ? _file.size() : _data.size()) - _skippedBytes;
 }
 

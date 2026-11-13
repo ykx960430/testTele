@@ -419,6 +419,7 @@ private:
 	GoodThumbnailState _goodThumbnailState = GoodThumbnailState();
 	Core::NameType _nameType = Core::NameType();
 	std::unique_ptr<FileLoader> _loader;
+	int64 _pendingResumeOffset = 0;
 
 };
 

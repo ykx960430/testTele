@@ -44,6 +44,8 @@ private:
 	void setup();
 	void refresh();
 	void setupList();
+	void setupDownloadsButton();
+	void updateDownloadsBadge();
 	void updateFavorite();
 	void createFavorite();
 	void destroyFavorite();
@@ -81,6 +83,7 @@ private:
 	not_null<Ui::VerticalLayout*> _container;
 	Ui::VerticalLayout *_list = nullptr;
 	std::unique_ptr<Ui::VerticalLayoutReorder> _reorder;
+	base::unique_qptr<Ui::SideBarButton> _downloads;
 	base::unique_qptr<Ui::SideBarButton> _setup;
 	base::unique_qptr<Ui::SlideWrap<FolderFavoriteButton>> _favorite;
 	base::flat_map<FilterId, base::unique_qptr<Ui::SideBarButton>> _filters;

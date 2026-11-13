@@ -266,6 +266,15 @@ windowFiltersMainMenuUnreadMuted: icon {
 	{ "dialogs/dialogs_menu_unread", sideBarIconFg },
 	{ "dialogs/dialogs_menu_unread_dot", sideBarBadgeBgMuted },
 };
+windowFiltersDownloads: SideBarButton(windowFiltersButton) {
+	icon: icon {{ "menu/download", sideBarIconFg }};
+}
+windowFiltersDownloadsIconsOnly: SideBarButton(windowFiltersButtonIconsOnly) {
+	icon: icon {{ "menu/download", sideBarIconFg }};
+}
+windowFiltersDownloadsTextOnly: SideBarButton(windowFiltersButtonTextOnly) {
+	icon: icon {{ "menu/download", sideBarIconFg }};
+}
 windowFilterSmallItem: PeerListItem(defaultPeerListItem) {
 	height: 44px;
 	photoPosition: point(13px, 5px);

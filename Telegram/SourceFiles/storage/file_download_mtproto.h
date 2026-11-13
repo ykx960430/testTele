@@ -74,6 +74,5 @@ private:
 
 	bool _lastComplete = false;
 	int64 _nextRequestOffset = 0;
-	int64 _startOffset = 0;
 
 };

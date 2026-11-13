@@ -5669,6 +5669,26 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_downloads_delete_in_cloud_one" = "It will be deleted from your disk, but will remain accessible in the cloud.";
 "lng_downloads_delete_in_cloud" = "They will be deleted from your disk, but will remain accessible in the cloud.";
 
+"lng_downloads_big_empty" = "No downloads yet";
+"lng_downloads_big_total" = "{size} in total";
+"lng_downloads_big_downloading" = "Downloading";
+"lng_downloads_big_paused" = "Paused";
+"lng_downloads_big_completed" = "Downloaded";
+"lng_downloads_big_progress" = "{ready} of {total}";
+"lng_downloads_export_list" = "Export download list";
+"lng_downloads_import_list" = "Import download list";
+"lng_downloads_pause_all" = "Pause all downloads";
+"lng_downloads_resume_all" = "Resume all downloads";
+"lng_downloads_export_done#one" = "Exported {count} download";
+"lng_downloads_export_done#other" = "Exported {count} downloads";
+"lng_downloads_import_done#one" = "Imported {count} download";
+"lng_downloads_import_done#other" = "Imported {count} downloads";
+"lng_downloads_export_empty" = "There is nothing to export.";
+"lng_downloads_import_empty" = "No new downloads were added.";
+"lng_downloads_resume_failed" = "Could not resume the download.";
+"lng_downloads_export_failed" = "Could not save the file.";
+"lng_downloads_import_failed" = "This file is not a download list.";
+
 "lng_send_image_empty" = "File: {name} is empty and can't be sent.";
 "lng_send_images_selected#one" = "{count} image selected";
 "lng_send_images_selected#other" = "{count} images selected";

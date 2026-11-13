@@ -943,6 +943,15 @@ void Account::writeLocationsQueued() {
 	});
 }
 
+void Account::writeLocationsForce() {
+	if (!_localKey) {
+		return;
+	}
+	_locationsChanged = true;
+	_writeLocationsTimer.cancel();
+	writeLocations();
+}
+
 void Account::writeLocationsDelayed() {
 	_locationsChanged = true;
 	_writeLocationsTimer.callOnce(kDelayedWriteTimeout);
