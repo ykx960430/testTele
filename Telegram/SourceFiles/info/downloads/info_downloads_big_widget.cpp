@@ -149,10 +149,10 @@ struct Row {
 
 [[nodiscard]] QString PeerTitleOf(const Data::DownloadedId &id) {
 	const auto item = id.object ? id.object->item.get() : nullptr;
-	const auto history = item ? item->history() : nullptr;
-	if (!history) {
+	if (!item) {
 		return QString();
 	}
+	const auto history = item->history();
 	if (const auto peer = history->session().data().peerLoaded(
 			id.itemId.peer)) {
 		return peer->name();
@@ -972,7 +972,7 @@ Section Memento::section() const {
 
 Widget::Widget(QWidget *parent, not_null<Controller*> controller)
 : ContentWidget(parent, controller) {
-	setInnerWidget(object_ptr<InnerWidget>(this, controller()));
+	setInnerWidget(object_ptr<InnerWidget>(this, controller));
 	_actionBar = Ui::CreateChild<ActionBar>(
 		this,
 		[=] { Core::App().downloadManager().pauseAll(); },
