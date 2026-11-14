@@ -796,37 +796,54 @@ void DownloadManager::loadingStopSilent(Main::Session *onlyInSession) {
 }
 
 void DownloadManager::pauseAll(Main::Session *onlyInSession) {
+	// WHY: pausing a loader pushes a document progress update, which re-enters
+	// this manager through check() and drops the entry being paused, so an
+	// iterator into `downloading` must never survive the pause call.
+	const auto dropEntry = [&](
+			SessionData &data,
+			not_null<const HistoryItem*> item) {
+		const auto i = ranges::find(data.downloading, item, ByItem);
+		if (i != end(data.downloading)) {
+			remove(data, i);
+		}
+	};
 	const auto pauseInSession = [&](SessionData &data) {
 		while (!data.downloading.empty()) {
-			auto i = data.downloading.end() - 1;
-			const auto object = i->object;
+			const auto &entry = data.downloading.back();
+			const auto object = entry.object;
 			const auto item = object.item;
-			if (!item->isAdminLogEntry()) {
-				auto descriptor = PausedDownloadDescriptor();
-				descriptor.path = i->path;
-				descriptor.total = i->total;
-				descriptor.started = i->started;
-				if (const auto document = object.document) {
-					document->pauseLoad(&descriptor.ready);
-					descriptor.documentId = document->id;
-					descriptor.downloadType = DownloadType::Document;
-					descriptor.displayName = document->filename();
-				} else if (const auto photo = object.photo) {
-					descriptor.photoId = photo->id;
-					descriptor.downloadType = DownloadType::Photo;
-				}
+			const auto path = entry.path;
+			const auto total = entry.total;
+			const auto started = entry.started;
+
+			auto descriptor = PausedDownloadDescriptor();
+			descriptor.path = path;
+			descriptor.total = total;
+			descriptor.started = started;
+			auto completed = false;
+			if (const auto document = object.document) {
+				completed = !document->filepath(true).isEmpty();
+				document->pauseLoad(&descriptor.ready);
+				descriptor.documentId = document->id;
+				descriptor.downloadType = DownloadType::Document;
+			} else if (const auto photo = object.photo) {
+				photo->cancel();
+				descriptor.photoId = photo->id;
+				descriptor.downloadType = DownloadType::Photo;
+			}
+			if (!item->isAdminLogEntry() && !completed) {
 				descriptor.itemIdPeer = item->history()->peer->id.value;
 				descriptor.itemIdMsg = item->id.bare;
 				descriptor.peerAccessHash = PeerAccessHash(item->history()->peer);
 				descriptor.sourceTitle = item->history()->peer->name();
-				if (descriptor.displayName.isEmpty()) {
-					descriptor.displayName = QFileInfo(
-						descriptor.path).fileName();
+				descriptor.displayName = QFileInfo(descriptor.path).fileName();
+				if (descriptor.displayName.isEmpty() && object.document) {
+					descriptor.displayName = object.document->filename();
 				}
 				descriptor.reason = PauseReason::Auto;
 				_paused.push_back(std::move(descriptor));
 			}
-			remove(data, i);
+			dropEntry(data, item);
 		}
 	};
 	if (onlyInSession) {
@@ -850,18 +867,24 @@ void DownloadManager::pauseOne(not_null<const HistoryItem*> item) {
 	const auto it = ranges::find_if(data.downloading, [&](const auto &d) {
 		return (d.object.item == item);
 	});
-	if (it == data.downloading.end()) return;
+	if (it == data.downloading.end()) {
+		return;
+	}
+	const auto object = it->object;
+	const auto path = it->path;
+	const auto total = it->total;
+	const auto started = it->started;
 
 	auto descriptor = PausedDownloadDescriptor();
-	descriptor.path = it->path;
-	descriptor.total = it->total;
-	descriptor.started = it->started;
-	if (const auto document = it->object.document) {
+	descriptor.path = path;
+	descriptor.total = total;
+	descriptor.started = started;
+	if (const auto document = object.document) {
 		document->pauseLoad(&descriptor.ready);
 		descriptor.documentId = document->id;
 		descriptor.downloadType = DownloadType::Document;
-		descriptor.displayName = document->filename();
-	} else if (const auto photo = it->object.photo) {
+	} else if (const auto photo = object.photo) {
+		photo->cancel();
 		descriptor.photoId = photo->id;
 		descriptor.downloadType = DownloadType::Photo;
 	}
@@ -869,14 +892,18 @@ void DownloadManager::pauseOne(not_null<const HistoryItem*> item) {
 	descriptor.itemIdMsg = item->id.bare;
 	descriptor.peerAccessHash = PeerAccessHash(item->history()->peer);
 	descriptor.sourceTitle = item->history()->peer->name();
-	if (descriptor.displayName.isEmpty()) {
-		descriptor.displayName = QFileInfo(descriptor.path).fileName();
+	descriptor.displayName = QFileInfo(descriptor.path).fileName();
+	if (descriptor.displayName.isEmpty() && object.document) {
+		descriptor.displayName = object.document->filename();
 	}
 	descriptor.reason = PauseReason::User;
 	_paused.push_back(std::move(descriptor));
 
-	const auto i = (it - data.downloading.begin());
-	remove(data, data.downloading.begin() + i);
+	// pauseLoad() re-enters through check() and may have dropped the entry.
+	const auto i = ranges::find(data.downloading, item, ByItem);
+	if (i != end(data.downloading)) {
+		remove(data, i);
+	}
 	_pausedListChanges.fire({});
 	flushPaused();
 }
@@ -1627,26 +1654,81 @@ void DownloadManager::validatePausedDownloads() {
 }
 
 QString DownloadManager::exportPausedJson() const {
-	if (_paused.empty()) {
-		return QString();
-	}
 	auto items = QJsonArray();
-	for (const auto &d : _paused) {
+	const auto append = [&](
+			uint64 documentId,
+			uint64 photoId,
+			DownloadType type,
+			int64 itemIdPeer,
+			int64 itemIdMsg,
+			uint64 accessHash,
+			int64 ready,
+			int64 total,
+			DownloadDate started,
+			PauseReason reason,
+			const QString &path,
+			const QString &displayName,
+			const QString &sourceTitle) {
 		auto object = QJsonObject();
-		object.insert(u"documentId"_q, QString::number(d.documentId));
-		object.insert(u"photoId"_q, QString::number(d.photoId));
-		object.insert(u"downloadType"_q, int(d.downloadType));
-		object.insert(u"itemIdPeer"_q, QString::number(d.itemIdPeer));
-		object.insert(u"itemIdMsg"_q, QString::number(d.itemIdMsg));
-		object.insert(u"peerAccessHash"_q, QString::number(d.peerAccessHash));
-		object.insert(u"ready"_q, QString::number(d.ready));
-		object.insert(u"total"_q, QString::number(d.total));
-		object.insert(u"started"_q, QString::number(d.started));
-		object.insert(u"reason"_q, int(d.reason));
-		object.insert(u"path"_q, d.path);
-		object.insert(u"displayName"_q, d.displayName);
-		object.insert(u"sourceTitle"_q, d.sourceTitle);
+		object.insert(u"documentId"_q, QString::number(documentId));
+		object.insert(u"photoId"_q, QString::number(photoId));
+		object.insert(u"downloadType"_q, int(type));
+		object.insert(u"itemIdPeer"_q, QString::number(itemIdPeer));
+		object.insert(u"itemIdMsg"_q, QString::number(itemIdMsg));
+		object.insert(u"peerAccessHash"_q, QString::number(accessHash));
+		object.insert(u"ready"_q, QString::number(ready));
+		object.insert(u"total"_q, QString::number(total));
+		object.insert(u"started"_q, QString::number(started));
+		object.insert(u"reason"_q, int(reason));
+		object.insert(u"path"_q, path);
+		object.insert(u"displayName"_q, displayName);
+		object.insert(u"sourceTitle"_q, sourceTitle);
 		items.append(object);
+	};
+	for (const auto &d : _paused) {
+		append(
+			d.documentId,
+			d.photoId,
+			d.downloadType,
+			d.itemIdPeer,
+			d.itemIdMsg,
+			d.peerAccessHash,
+			d.ready,
+			d.total,
+			d.started,
+			d.reason,
+			d.path,
+			d.displayName,
+			d.sourceTitle);
+	}
+	// Running downloads are exported too, or a backup taken mid-download is empty.
+	for (const auto &[session, data] : _sessions) {
+		for (const auto &entry : data.downloading) {
+			const auto &object = entry.object;
+			const auto document = object.document;
+			const auto photo = object.photo;
+			const auto peer = object.item->history()->peer;
+			const auto saveAs = QFileInfo(entry.path).fileName();
+			append(
+				document ? document->id : 0,
+				photo ? photo->id : 0,
+				document ? DownloadType::Document : DownloadType::Photo,
+				peer->id.value,
+				object.item->id.bare,
+				PeerAccessHash(peer),
+				entry.ready,
+				entry.total,
+				entry.started,
+				PauseReason::Auto,
+				entry.path,
+				!saveAs.isEmpty()
+					? saveAs
+					: (document ? document->filename() : QString()),
+				peer->name());
+		}
+	}
+	if (items.isEmpty()) {
+		return QString();
 	}
 	auto root = QJsonObject();
 	root.insert(u"app"_q, u"AyuGram"_q);

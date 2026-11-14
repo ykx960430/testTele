@@ -3465,112 +3465,10 @@ void OverlayWidget::shareAtTime() {
 void OverlayWidget::downloadMedia() {
 	if (!_photo && !_document) {
 		return;
-	} else if (Core::App().settings().askDownloadPath()) {
-		return saveAs();
-	} else if (hasCopyMediaRestriction()) {
-		if (_stories && !hasCopyMediaRestriction(true)) {
-			showPremiumDownloadPromo();
-		}
-		return;
 	}
-
-	QString path;
-	const auto session = _photo ? &_photo->session() : &_document->session();
-	if (Core::App().settings().downloadPath().isEmpty()) {
-		path = File::DefaultDownloadPath(session);
-	} else if (Core::App().settings().downloadPath() == FileDialog::Tmp()) {
-		path = session->local().tempDirectory();
-	} else {
-		path = Core::App().settings().downloadPath();
-	}
-	if (path.isEmpty()) return;
-	QString toName;
-	if (_document) {
-		const auto &location = _document->location(true);
-		if (location.accessEnable()) {
-			if (!QDir().exists(path)) QDir().mkpath(path);
-			toName = filedialogNextFilename(
-				base::FileNameFromUserString(_document->filename()),
-				location.name(),
-				path);
-			if (!toName.isEmpty() && toName != location.name()) {
-				QFile(toName).remove();
-				if (!QFile(location.name()).copy(toName)) {
-					toName = QString();
-				} else if (_message) {
-					auto &manager = Core::App().downloadManager();
-					manager.addLoaded({
-						.item = _message,
-						.document = _document,
-					}, toName, manager.computeNextStartDate());
-				}
-			}
-			if (_stories && !toName.isEmpty()) {
-				showSaveMsgToast(toName, tr::lng_mediaview_video_saved_to);
-			}
-			location.accessDisable();
-		} else {
-			if (_document->filepath(true).isEmpty()
-				&& !_document->loading()) {
-				const auto document = _document;
-				const auto checkSaveStarted = [=] {
-					if (isHidden() || _document != document) {
-						return;
-					}
-					_documentLoadingTo = _document->loadingFilePath();
-					if (_stories && _documentLoadingTo.isEmpty()) {
-						const auto toName = _document->filepath(true);
-						if (!toName.isEmpty()) {
-							showSaveMsgToast(
-								toName,
-								tr::lng_mediaview_video_saved_to);
-						}
-					}
-				};
-				DocumentSaveClickHandler::SaveAndTrack(
-					_message ? _message->fullId() : FullMsgId(),
-					_document,
-					DocumentSaveClickHandler::Mode::ToFile,
-					crl::guard(_widget, checkSaveStarted));
-			} else {
-				_saveVisible = computeSaveButtonVisible();
-				update(_saveNavOver);
-			}
-			updateOver(_lastMouseMovePos);
-		}
-	} else if (_photo && _photo->hasVideo()) {
-		if (!_photoMedia->videoContent(Data::PhotoSize::Large).isEmpty()) {
-			if (!QDir().exists(path)) {
-				QDir().mkpath(path);
-			}
-			toName = filedialogDefaultName(u"photo"_q, u".mp4"_q, path);
-			if (!_photoMedia->saveToFile(toName)) {
-				toName = QString();
-			}
-		} else {
-			_photo->loadVideo(Data::PhotoSize::Large, fileOrigin());
-			_savePhotoVideoWhenLoaded = SavePhotoVideo::QuickSave;
-		}
-	} else {
-		if (!_photo || !_photoMedia->loaded()) {
-			_saveVisible = computeSaveButtonVisible();
-			update(_saveNavOver);
-		} else {
-			if (!QDir().exists(path)) {
-				QDir().mkpath(path);
-			}
-			toName = filedialogDefaultName(u"photo"_q, u".jpg"_q, path);
-			const auto saved = _photoMedia->saveToFile(toName);
-			if (!saved) {
-				toName = QString();
-			}
-		}
-	}
-	if (!toName.isEmpty()) {
-		showSaveMsgToast(toName, (_stories && _document)
-			? tr::lng_mediaview_video_saved_to
-			: tr::lng_mediaview_saved_to);
-	}
+	// WHY: the viewer always lets the user pick the name and folder, so a
+	// download never lands silently in the default downloads directory.
+	saveAs();
 }
 
 void OverlayWidget::saveCancel() {
@@ -8332,8 +8230,10 @@ void OverlayWidget::updateOver(QPoint pos) {
 		request.removeFromEnd = _captionSkipBlockWidth;
 		auto textState = _caption.getStateElided(pos - _captionRect.topLeft(), _captionRect.width(), request);
 		lnk = textState.link;
-		if (_stories && !lnk) {
-			lnk = ensureCaptionExpandLink();
+		if (!lnk) {
+			lnk = _stories
+				? ensureCaptionExpandLink()
+				: ensureCaptionCopyLink();
 		}
 		lnkhost = this;
 	} else if (_stories && captionGeometry().contains(pos)) {
@@ -8442,6 +8342,20 @@ ClickHandlerPtr OverlayWidget::ensureCaptionExpandLink() {
 		_captionExpandLink = std::make_shared<LambdaClickHandler>(toggle);
 	}
 	return _captionExpandLink;
+}
+
+ClickHandlerPtr OverlayWidget::ensureCaptionCopyLink() {
+	if (!_captionCopyLink) {
+		const auto copy = crl::guard(_widget, [=] {
+			TextUtilities::SetClipboardText(_caption.toTextForMimeData());
+			showSaveMsgToastWith(
+				QString(),
+				{ tr::lng_text_copied(tr::now) },
+				1000);
+		});
+		_captionCopyLink = std::make_shared<LambdaClickHandler>(copy);
+	}
+	return _captionCopyLink;
 }
 
 void OverlayWidget::handleMouseRelease(

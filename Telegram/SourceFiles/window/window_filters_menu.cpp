@@ -158,10 +158,9 @@ void FiltersMenu::setup() {
 		_outer.setGeometry({ 0, 0, width, height });
 		_menu.resizeToWidth(width);
 		_menu.move(0, 0);
-		_scroll.setGeometry(
-			{ 0, _menu.height(), width, height - _menu.height() });
 		_container->resizeToWidth(width);
 		_container->move(0, 0);
+		updateDownloadsButtonGeometry();
 	}, _outer.lifetime());
 
 	auto premium = Data::AmPremiumValue(&_session->session());
@@ -468,16 +467,16 @@ void FiltersMenu::setupDownloadsButton() {
 		: (mode == Ui::ChatsFiltersTabsMode::IconsOnly)
 		? st::windowFiltersDownloadsIconsOnly
 		: st::windowFiltersDownloads;
+	// WHY: the entry lives outside the scrolling list, pinned to the bottom of
+	// the sidebar, so a long filters list can never push it out of sight.
 	_downloads = base::unique_qptr<Ui::SideBarButton>(
-		_container->insert(
-			0,
-			object_ptr<Ui::SideBarButton>(
-				_container,
-				TextWithEntities{ tr::lng_downloads_section(tr::now) },
-				st,
-				Core::TextContext({
-					.session = &_session->session(),
-				}))));
+		Ui::CreateChild<Ui::SideBarButton>(
+			&_outer,
+			TextWithEntities{ tr::lng_downloads_section(tr::now) },
+			st,
+			Core::TextContext({
+				.session = &_session->session(),
+			})));
 	const auto raw = _downloads.get();
 	raw->setShowIcon(mode != Ui::ChatsFiltersTabsMode::TextOnly);
 	raw->setShowText(mode != Ui::ChatsFiltersTabsMode::IconsOnly);
@@ -496,6 +495,25 @@ void FiltersMenu::setupDownloadsButton() {
 	) | rpl::on_next([=] {
 		updateDownloadsBadge();
 	}, raw->lifetime());
+
+	updateDownloadsButtonGeometry();
+}
+
+void FiltersMenu::updateDownloadsButtonGeometry() {
+	const auto width = st::windowFiltersWidth;
+	const auto height = _outer.height();
+	auto bottom = 0;
+	if (_downloads) {
+		_downloads->resizeToWidth(width);
+		bottom = _downloads->height();
+		_downloads->move(0, height - bottom);
+		_downloads->raise();
+	}
+	_scroll.setGeometry({
+		0,
+		_menu.height(),
+		width,
+		std::max(height - _menu.height() - bottom, 0) });
 }
 
 void FiltersMenu::updateDownloadsBadge() {

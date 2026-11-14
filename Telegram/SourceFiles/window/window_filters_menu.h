@@ -65,6 +65,7 @@ private:
 		bool locked = false,
 		bool toBeginning = false);
 	void setupMainMenuIcon();
+	void updateDownloadsButtonGeometry();
 	void showMenu(QPoint position, FilterId id);
 	void scrollToButton(not_null<Ui::RpWidget*> widget);
 	void applyFilterAt(int start, int delta);

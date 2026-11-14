@@ -9,20 +9,22 @@ using "ui/basic.style";
 
 downloadsBigPadding: margins(16px, 12px, 16px, 12px);
 
+downloadsBigLayerWidth: 780px;
+
 downloadsBigHeaderFont: font(13px semibold);
 downloadsBigHeaderFg: windowBoldFg;
 downloadsBigHeaderTop: 16px;
 downloadsBigHeaderHeight: 30px;
 downloadsBigHeaderBottom: 4px;
 
-downloadsBigRowHeight: 72px;
+downloadsBigRowPadding: margins(12px, 12px, 12px, 12px);
 downloadsBigRowBgOver: windowBgOver;
 
-downloadsBigIconSize: 40px;
-downloadsBigIconSkip: 12px;
-downloadsBigIconRadius: 10px;
-downloadsBigIconBg: windowBgOver;
-downloadsBigItemIcon: icon {{ "menu/download", windowSubTextFg }};
+downloadsBigThumbSize: 48px;
+downloadsBigThumbSkip: 12px;
+downloadsBigThumbRadius: 10px;
+downloadsBigThumbBg: windowBgOver;
+downloadsBigThumbIcon: icon {{ "menu/download", windowSubTextFg }};
 
 downloadsBigNameFont: font(14px semibold);
 downloadsBigNameFg: windowFg;
@@ -30,11 +32,30 @@ downloadsBigStatusFont: font(12px);
 downloadsBigStatusFg: windowSubTextFg;
 downloadsBigStatusTop: 2px;
 
-downloadsBigProgressHeight: 4px;
-downloadsBigProgressTop: 7px;
-downloadsBigProgressBg: windowBgOver;
-downloadsBigProgressFg: activeLineFg;
+downloadsBigActionSize: 32px;
+downloadsBigActionSkip: 8px;
+downloadsBigActionRadius: 8px;
+downloadsBigActionBgOver: windowBgOver;
+downloadsBigActionPause: icon {{ "history_file_pause", windowSubTextFg }};
+downloadsBigActionResume: icon {{ "history_file_play", windowSubTextFg }};
+
+downloadsBigToggleSize: 12px;
+downloadsBigToggle: icon {{ "history_down_arrow", windowSubTextFg }};
 
 downloadsBigEmptyTop: 72px;
 downloadsBigEmptyFont: font(14px);
 downloadsBigEmptyFg: windowSubTextFg;
+
+downloadsBigBarHeight: 46px;
+downloadsBigBarBg: windowBg;
+downloadsBigBarPadding: margins(16px, 0px, 16px, 0px);
+downloadsBigBarBorder: 1px;
+downloadsBigBarBorderFg: windowBgOver;
+downloadsBigBarButtonFont: font(13px semibold);
+downloadsBigBarButtonPadding: margins(14px, 8px, 14px, 8px);
+downloadsBigBarButtonRadius: 8px;
+downloadsBigBarButtonSkip: 8px;
+downloadsBigBarButtonFg: activeButtonFg;
+downloadsBigBarButtonFgOver: activeButtonFgOver;
+downloadsBigBarButtonFgDisabled: windowSubTextFg;
+downloadsBigBarButtonBgOver: windowBgOver;

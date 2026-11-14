@@ -21,6 +21,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "core/application.h"
 #include "styles/style_info.h"
+#include "styles/style_info_downloads_big.h"
 #include "styles/style_layers.h"
 
 namespace Info {
@@ -204,9 +205,12 @@ void LayerWidget::parentResized() {
 	//} else if (_controller->canShowThirdSectionWithoutResize()) {
 	//	takeToThirdSection();
 	} else {
+		const auto desired = _contentWrap->key().isDownloadsBig()
+			? st::downloadsBigLayerWidth
+			: st::infoDesiredWidth;
 		auto newWidth = std::min(
 			parentWidth - 2 * st::infoMinimalLayerMargin,
-			st::infoDesiredWidth);
+			desired);
 		resizeToWidth(newWidth);
 	}
 }

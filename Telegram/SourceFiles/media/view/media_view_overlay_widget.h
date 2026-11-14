@@ -618,6 +618,7 @@ private:
 	[[nodiscard]] bool topShadowOnTheRight() const;
 	void applyHideWindowWorkaround();
 	[[nodiscard]] ClickHandlerPtr ensureCaptionExpandLink();
+	[[nodiscard]] ClickHandlerPtr ensureCaptionCopyLink();
 
 	Window::SessionController *findWindow(bool switchTo = true) const;
 
@@ -701,6 +702,7 @@ private:
 	Ui::Text::QuotePaintCache _captionBlockquoteCache;
 	QRect _captionRect;
 	ClickHandlerPtr _captionExpandLink;
+	ClickHandlerPtr _captionCopyLink;
 	int _captionShowMoreWidth = 0;
 	int _captionSkipBlockWidth = 0;
 

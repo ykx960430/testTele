@@ -1221,15 +1221,71 @@ download_progress : ... {}
 | # | 任务 | 实际实现 | 状态 |
 |---|------|---------|------|
 | T2C.1 | 下载图标 | 复用已有 `Resources/icons/menu/download.png`（含 @2x/@3x），未新增 SVG | ✅ |
-| T2C.2 | 侧边栏按钮 + 角标 | `FiltersMenu::setupDownloadsButton()` / `updateDownloadsBadge()`；插在 `_container` 索引 0（主菜单按钮之下、文件夹列表之上）；角标订阅 `loadingListChanges + pausedListChanges`，显示 `loadingCount + pausedCount`；随 `chatFiltersTabsMode` 切换 icon/text 显隐 | ✅ |
+| T2C.2 | 侧边栏按钮 + 角标 | `FiltersMenu::setupDownloadsButton()` / `updateDownloadsBadge()`；按钮挂在 `_outer` 底部（`updateDownloadsButtonGeometry()`），**不随 `_scroll` 滚动、不参与文件夹列表折叠**；角标订阅 `loadingListChanges + pausedListChanges`，显示 `loadingCount + pausedCount`；随 `chatFiltersTabsMode` 切换 icon/text 显隐 | ✅ |
 | T2C.3 | 跳转 BigPage | `_downloads->setClickedCallback` → `_session->showSection(Info::DownloadsBig::Make(user))` | ✅ |
-| T2C.4 | 顶栏菜单（全部暂停/继续） | `Widget::fillTopBarMenu()` + `info_wrap_widget.cpp` 里给 `Section::Type::DownloadsBig` 加 `addTopBarMenuButton()`；菜单项：全部暂停（有下载中才显示）/ 全部继续（有暂停才显示）/ 导出下载列表 / 导入下载列表 | ✅ |
+| T2C.4 | 全部暂停/继续 | 已从顶栏菜单移到 BigPage 顶部**固定操作条**（`ActionBar`，自绘、不随列表滚动，`setScrollTopSkip(st::downloadsBigBarHeight)` 让滚动区从条下面开始）；顶栏菜单（`info_wrap_widget.cpp` 给 `Section::Type::DownloadsBig` 加 `addTopBarMenuButton()`）只保留导出/导入 | ✅ |
 | T2C.5 | 右键菜单（暂停/恢复/取消/在文件夹打开） | — | ⏳ |
-| T2C.6 | 文本本地化 | BigPage 的 6 个 `lng_downloads_big_*` + 顶栏菜单 9 个 `lng_downloads_*` key 全部已加 | ✅ |
+| T2C.6 | 文本本地化 | BigPage 的 6 个 `lng_downloads_big_*` + 顶栏菜单 9 个 `lng_downloads_*` key 全部已加；新增 `Tr(en, zh)` 兜底（见下） | ✅ |
 
-> 注意：`T2C.2` 的按钮在 `setup()` 中先于 `setupList()` 创建，`_list` / `_setup` / `_favorite` 是
-> 之后 `add()` 进来的，所以插入顺序天然是 `[下载][文件夹列表][收藏][编辑]`；`refresh()` 重建的只是
-> `_list` 内部的行，不会影响下载按钮。
+> 注意：`T2C.2` 的按钮是 `_outer` 的直接子控件（不是 `_container` 的子控件），所以文件夹列表再长也不会把它挤出可视区；
+> `_scroll` 的高度由 `updateDownloadsButtonGeometry()` 里 `height - _menu.height() - bottom` 得到，按钮本身 `raise()` 在最上层。
+
+### 第一轮构建测试反馈修复（第一轮真机反馈）🚧 工作区，未提交
+
+对应反馈：5 个严重 bug + 6 项 UI 不符 + 2 项优化。
+
+#### 严重 bug
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| B1 | 有下载中退出 → `can't dereference invalidated vector iterator` | `pauseAll()`/`pauseOne()` 持有 `data.downloading` 的迭代器，`document->pauseLoad()` 会同步走 `documentLoadDone → _documentLoadProgress.fire_copy → DownloadManager::check()` → `remove(data, i)` 把该元素删掉 | 不再跨 `pauseLoad()` 持有迭代器：先拷出 `object/path/total/started`，暂停后用 `ranges::find(data.downloading, item, ByItem)` 重新定位再 `remove`（`data_download_manager.cpp`） |
+| B2 | 重开 APP 后「下载中」任务丢失 | B1 的连带后果：崩溃发生在 `pauseAll()` 里、`flushPaused()` 之前，暂停列表没落盘 | 同 B1；退出链路 `preventsQuit → downloadPreventsQuit → loadingStopSilent → pauseAll → flushPaused → writeLocationsForce()` |
+| B3 | 点「全部暂停」→ 任务全丢 + 警报 + 闪退 | 同 B1，`pauseAll()` 在第一个元素就被迭代器失效打断 | 同 B1 |
+| B4 | 另存为下载的视频，页面显示原始文件名 | 行标题原来取 `document->filename()`（消息里的名字），没用 `id->path`（用户另存为的路径） | 新增 `TitleFor(path, fallback)`：优先 `QFileInfo(path).fileName()`；`File::ShowInFolder(row.path)` 本来就用的保存路径 |
+| B5 | 下载中时导出提示 `There is nothing to export` | `exportPausedJson()` 只序列化 `_paused`，下载中的任务不在里面 | 追加遍历各会话的 `data.downloading`（带当前 `ready/total`）；`items` 为空才返回空；Toast 计数改为 `pausedCount() + loadingCount()` |
+
+#### UI 不符项
+
+| # | 反馈 | 处理 |
+|---|------|------|
+| U1 | 侧边栏下载按钮要在最下方、不随列表折叠 | 已修：按钮改为 `_outer` 子控件，`move(0, height - buttonHeight)` |
+| U2a | 封面、来源会话、进度、磁盘操作 | 四项都已做：封面缩略图（`ThumbnailFor()` 走 `createMediaView()->thumbnail()/thumbnailInline()`，无图时画占位图标）、来源会话（下载中取 `peer->name()`，暂停取 `descriptor.sourceTitle`）、进度文字、磁盘操作 = 整行点击 `ShowInFolder` |
+| U2b | 文案全是英文 | 新增本地 `Tr(en, zh)`：`ChineseUi()` 判断 `Lang::Id()`（`zh` 前缀或 `QLocale` 判定 Chinese），BigPage 全部文案 + Toast 走 `Tr()` |
+| U2c | 页面太窄 | 已做：BigPage 是以 `Info::LayerWidget`（居中浮层）呈现的，宽度被 `infoDesiredWidth`(392px) 卡住；现改为按 `Info::Key::isDownloadsBig()` 取 `st::downloadsBigLayerWidth`(780px)，约为原来两倍（`info_layer_widget.cpp::parentResized`） |
+| U2d | 「下载中」要可折叠 | 已做：分组标题右侧画展开/收起箭头（`st::downloadsBigToggle`，收起时旋转 180°）；折叠状态只影响行，标题与计数保留；折叠时 `updateProgress()` 直接跳过，不会每帧重建 |
+| U2e | 全部暂停/全部继续固定显示在下载中模块顶部 | 新增 `ActionBar`（固定高度 46px，两个自绘按钮，hover/禁用态）；列表滚动区通过 `setScrollTopSkip()` 从条下方开始，所以条不跟着滚 |
+| U2f | 已完成列表要按完成时间倒序 | `buildRows()` 里 `std::sort(completed, a.started > b.started)` |
+| U3a | 已完成项：缩略图 + 文件名（可多行、必须完整显示）+ 文件大小 · 来源会话 | 文件名用 `DrawTitle()`：`Ui::Text::SimpleGeometry(w, 0, 0, false)` 后手动置 `geometry.breakEverywhere = true`（TD 文本引擎只在 `breakEverywhere` 时才拆超长词），行高用 `countHeight(w, true)` 动态计算；状态行 = `大小 · 来自 X` |
+| U3b | 已完成项点击跳转到来源消息 | `jumpToRow()` → `_controller->showPeerHistory(peer, Way::Forward, msg)` |
+| U3c | 正在下载项右侧多一个下载/暂停图标 | `relayout()` 给下载中/暂停行预留 `downloadsBigActionSize` 宽度，`paintItem()` 画 `history_file_pause` / `history_file_play`；点击该矩形直接暂停/继续 |
+| U3d | 暂停任务必须留在「下载中」列表 | `buildRows()` 把 `loading` 与 `paused` 行合并进同一个「下载中」分组（`activeCount = loading + paused`），不再单设「已暂停」组；暂停行状态前缀「已暂停」 |
+
+#### `Tr(en, zh)` 的设计取舍
+
+上游只随包发英文 `lang.strings`，其余语言来自 Telegram 语言包；自定义 key（`lng_downloads_big_*`）
+不在官方语言包里，所以选中文时也只能回退到英文 —— 这就是 U2b 的根因。
+现阶段的折中是：文案仍然先取 `tr::lng_*(tr::now)`（保留未来接语言包的可能），
+再由 `Tr(en, zh)` 在中文界面上覆盖成中文。代价是新增文案需要在两个地方各写一次。
+
+#### 仍待处理
+
+| # | 项 | 为什么没做 |
+|---|----|-----------|
+| U4a | 已完成项的「来源会话」需要真实可点的链接样式 | 目前是整行点击跳转，没有单独画出「来自 X」的链接外观；已满足「点击跳转到对应消息」的功能需求 |
+| T2C.5 | 右键菜单（暂停/恢复/取消/在文件夹打开） | 未开始 |
+
+> 暂停任务的数据模型说明：`pauseOne()` 会把条目从内存中的 `data.downloading` 容器**移到** `_paused`
+> 列表（这是容器之间的搬移，不是业务删除，`DownloadingId` 里的 `externalCancel`/进度也一并转成
+> `PausedDownloadDescriptor` 保存）。BigPage 现在把两者都画在「下载中」分组里，所以暂停后任务不会从
+> 页面上消失。之前「先拷出来再删」的描述仅指 `pauseAll()` 为了避开迭代器失效而先拷字段再重新定位，
+> 与 UI 分组无关。
+
+#### 播放器两项优化（O1 / O2）
+
+| # | 反馈 | 处理 |
+|---|------|------|
+| O1 | 视频/图片播放界面下载要默认走「另存为」，让用户改文件名 | `OverlayWidget::downloadMedia()` 原来先判断 `askDownloadPath()` 设置、否则直接落到默认下载目录；现在只保留 `_photo/_document` 判空 + 一行 `saveAs()`（`saveAs()` 内部已处理复制限制、文档/图片/图片视频、以及 `addLoaded` 记录） |
+| O2 | 播放界面点「消息信息」复制到剪贴板并提示「已复制」 | 该区域就是 caption（`Over::Caption` 枚举存在但一直没接）。新增 `OverlayWidget::ensureCaptionCopyLink()`（`LambdaClickHandler` + `crl::guard`），复制 `_caption.toTextForMimeData()` 并复用 `showSaveMsgToastWith(..., tr::lng_text_copied, 1000)`；`updateOver()` 的 caption 分支改为 `_stories ? ensureCaptionExpandLink() : ensureCaptionCopyLink()`（stories 保留原来的展开行为） |
 
 ### Phase 3：集成测试 ⏳ 待开发
 
@@ -1306,6 +1362,7 @@ download_progress : ... {}
 | `Telegram/SourceFiles/window/window_filters_menu.h` | 新增 `setupDownloadsButton()` / `updateDownloadsBadge()` / `_downloads` 成员 |
 | `Telegram/SourceFiles/window/window_filters_menu.cpp` | 创建侧栏下载按钮、角标订阅、跳转 BigPage |
 | `Telegram/SourceFiles/info/info_wrap_widget.cpp` | 删除 `setupTopBarWidgets` 里已失效的 `DownloadsBig` 死分支；给 `Section::Type::DownloadsBig` 加 `addTopBarMenuButton()`（顶栏 ⋮ 菜单） |
+| `Telegram/SourceFiles/info/info_layer_widget.cpp` | `parentResized()` 里按 `Info::Key::isDownloadsBig()` 选用 `st::downloadsBigLayerWidth`（默认仍是 `infoDesiredWidth`） |
 | `Telegram/SourceFiles/data/data_download_manager.h/.cpp` | `exportPausedJson()` / `importPausedJson()` + `flushPaused()`；`pauseAll()` 结尾改 `flushPaused()`；`descriptor.displayName/sourceTitle` 填充 |
 | `Telegram/SourceFiles/storage/storage_account.h/.cpp` | `writeLocationsForce()`：取消 1s 延迟定时器并立即落盘 |
 | `Telegram/SourceFiles/storage/file_download.cpp` | `checkForOpen()` 续传分支改 `ReadWrite`；`currentOffset()` 在 `_paused` 时返回 `_pausedBytes` |
@@ -1577,7 +1634,11 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 - [x] 退出持久化保证（`writeLocationsForce` + `flushPaused`）
 - [x] 续传偏移两个 bug（`currentOffset()` / `checkForOpen()` 截断）
 - [x] Code review 一轮：`pause()` 取偏移顺序、BigPage done 条目重复、`_pendingResumeOffset` 泄漏、暂停记录强制落盘
-- [ ] **本地/CI 重建 Debug，验证侧边栏入口、BigPage、导出/导入可见可用**
+- [x] 第一轮真机反馈的 5 个 bug（迭代器失效崩溃 ×2、重启丢任务、另存为文件名、下载中导出为空）
+- [x] 第一轮真机反馈的 UI 项：侧边栏按钮置底、来源会话、固定操作条（全部暂停/继续）、已完成倒序、中文文案
+- [x] 第二轮反馈：封面缩略图（U2a）、层宽加倍到 780px（U2c）、下载中可折叠（U2d）、已完成项多行完整文件名 + 大小·来源 + 点击跳转（U3a/U3b）、行右侧暂停/继续图标（U3c）、暂停任务保留在「下载中」组（U3d）
+- [x] 第二轮反馈：播放器下载默认另存为（O1）+ 点消息信息复制并提示（O2）
+- [ ] **推 CI 出包，验证上述全部修复**
 - [ ] Phase 2-C.5 右键菜单（暂停/恢复/取消/在文件夹打开）
 - [ ] Phase 3 集成测试
 
@@ -1600,11 +1661,13 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 - Phase 2-B（BigPage 真实内容：分组 + 行模型 + 进度条 + 点击恢复/打开文件夹）
 - Phase 2-C.1-4 + 2-C.6（侧边栏下载入口 + 角标 + 跳转 BigPage；顶栏 ⋮ 菜单：全部暂停/继续 + 导出/导入下载列表；文案全量本地化）
 - 退出不丢任务：`Account::writeLocationsForce()` + `DownloadManager::flushPaused()`
-- 顺手修掉四个续传正确性 bug（currentOffset / resumeOne / validatePausedDownloads / checkForOpen 截断）
-- Code review 一轮修复：`pause()` 取偏移顺序 / BigPage done 条目重复 / `_pendingResumeOffset` 泄漏 / `pauseOne`·`resumeOne`·`cancelPaused` 强制落盘
+- 第一轮真机反馈修复：`pauseAll`/`pauseOne` 迭代器失效崩溃、重启丢下载中任务、另存为文件名、
+  下载中导出为空；侧边栏按钮置底、固定操作条、来源会话、已完成倒序、中文文案（`Tr(en, zh)`）
+- 第二轮反馈：封面缩略图、层宽 392→780px、下载中可折叠、已完成项多行完整文件名 + 大小·来源 + 点击跳转、
+  行右侧暂停/继续图标、暂停任务保留在「下载中」组；播放器下载默认另存为 + 点消息信息复制提示
 
-下一步：先推 CI 出包验证侧边栏入口 + BigPage + 导出/导入，然后 Phase 2-C.5 右键菜单，
-再做 Phase 3 集成测试。详细任务表见「六、开发任务拆分」。
+未做：Phase 2-C.5 右键菜单。
+下一步：推 CI 出包验证本轮全部改动（包含新样式符号 `st::downloadsBigLayerWidth`，必须重新 configure 生成 `style_info_downloads_big.h`）；然后做右键菜单；再做 Phase 3 集成测试。
 ```
 
 ---
