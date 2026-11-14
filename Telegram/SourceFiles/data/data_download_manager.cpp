@@ -902,7 +902,9 @@ bool DownloadManager::resumeOne(const PausedDownloadDescriptor &descriptor) {
 	auto document = (DocumentData*)nullptr;
 	for (auto &entry : _sessions) {
 		const auto found = entry.first->data().message(itemId);
-		const auto candidate = found ? found->document() : nullptr;
+		const auto candidate = (found && found->media())
+			? found->media()->document()
+			: nullptr;
 		if (candidate && (candidate->id == paused.documentId)) {
 			item = found;
 			document = candidate;
