@@ -566,6 +566,7 @@ void InnerWidget::buildRows() {
 		row.started = id->started;
 		row.path = id->path;
 		row.item = id->object.item.get();
+		row.itemId = id->object.item->fullId();
 		row.title = TitleFor(id->path, DocumentName(&id->object));
 		row.titleText.setText(_nameStyle, row.title);
 		row.thumb = ThumbnailFor(id->object, _thumbs);

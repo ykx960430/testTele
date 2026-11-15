@@ -1104,6 +1104,14 @@ int DownloadManager::pausedCount() const {
 	return _paused.size();
 }
 
+int DownloadManager::loadedCount() const {
+	int result = 0;
+	for (const auto &[session, data] : _sessions) {
+		result += data.downloaded.size();
+	}
+	return result;
+}
+
 auto DownloadManager::pausedList() const
 -> ranges::any_view<const PausedDownloadDescriptor*,
 		ranges::category::input> {

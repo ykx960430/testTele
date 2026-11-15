@@ -147,3 +147,23 @@ prepare 全跳过 → Configure ~1 min → Build ~1h27m（`--parallel 2`，2623 
 > `DocumentData` / `FileLoader` / `mtpFileLoader` / `Storage::Account` / `SideBarButton` /
 > `VerticalLayout` / `MenuCallback` / `Toast` / `FileDialog` / `rpl::merge` 的类型匹配，
 > 没有发现第二处编译错误。
+
+## 2026-11 第三次 CI 编译失败（run 59 / run 60）
+
+`info_downloads_big_widget.cpp(844)` 调了 `Data::DownloadManager::loadedCount()`，
+头文件里没有这个成员 —— 82b0693 写调用点时 API 还没加（两轮 CI 报的是同一个错，
+因为 dd7dc65 只加了落盘，没碰这一行）。
+→ 在 `pausedCount()` 旁边补 `loadedCount()`：累加各 session 的 `downloaded.size()`，
+语义是「磁盘上存在的下载记录数」，配合 `_rows.empty()` 表示「还在 resolve」。
+这个信号是安全的：`resolveRequestsFinished()` 会给每条记录填 `object`
+（找不到消息就 `generateEntry()` 造一个），文件被删的记录会被 `erase`，
+所以 resolve 结束后 `_rows` 必然非空，不会出现「永远转圈」。
+
+顺带修掉 cda5293 留下的空转：`activateRow()` 把 `Downloading` 也归到「跳转」，
+但 `buildRows()` 从没给下载中行填 `row.itemId`，`jumpToRow()` 第一行就
+`if (!row.itemId.peer) return;` 直接返回 → 点下载中行永远没反应。
+补 `row.itemId = id->object.item->fullId();`。
+
+**教训**：`downloadManager()` 的调用点散在多个 widget / controller 里，
+推 CI 前必须 `grep -o "downloadManager()\.[A-Za-z_]*"` 与头文件 public 成员逐一对账；
+只审计「本次改动的文件」会漏（82b0693 改的就是这个文件，但上一轮清单里没有它）。

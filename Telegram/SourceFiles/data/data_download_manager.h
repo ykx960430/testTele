@@ -176,6 +176,7 @@ public:
 	[[nodiscard]] int loadingCount(
 		Main::Session *onlyInSession = nullptr) const;
 	[[nodiscard]] int pausedCount() const;
+	[[nodiscard]] int loadedCount() const;
 	[[nodiscard]] auto pausedList() const
 		-> ranges::any_view<const PausedDownloadDescriptor*,
 			ranges::category::input>;
