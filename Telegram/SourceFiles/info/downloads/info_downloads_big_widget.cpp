@@ -38,6 +38,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_menu_icons.h"
 
 #include <algorithm>
+#include <memory>
 
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
@@ -165,14 +166,21 @@ struct Row {
 	const auto size = st::downloadsBigThumbSize;
 	const Image *image = nullptr;
 	auto id = uint64(0);
+	// WHY: createMediaView() hands over the only shared_ptr, so the view
+	// and the Image pointers inside it die at the end of the block
+	// unless we keep it alive until the image has been read out.
+	std::shared_ptr<Data::DocumentMedia> documentMedia;
+	std::shared_ptr<Data::PhotoMedia> photoMedia;
 	if (object.document) {
 		id = object.document->id;
-		const auto view = object.document->createMediaView();
-		image = view->thumbnail() ? view->thumbnail() : view->thumbnailInline();
+		documentMedia = object.document->createMediaView();
+		image = documentMedia->thumbnail()
+			? documentMedia->thumbnail()
+			: documentMedia->thumbnailInline();
 	} else if (object.photo) {
 		id = object.photo->id;
-		const auto view = object.photo->createMediaView();
-		image = view->thumbnailInline();
+		photoMedia = object.photo->createMediaView();
+		image = photoMedia->thumbnailInline();
 	}
 	if (!id) {
 		return QImage();
