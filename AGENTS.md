@@ -6,75 +6,37 @@ Avoid building the project.
 
 If you're asked to create a Pull Request, then clearly state in PR description that it was AI generated.
 
-## Build System Structure
+## Project Notes
 
-The build system expects this directory layout:
+- `.ai-memory/` holds the project's technical archive: facts learned from actually building / running the app that are not recoverable from `docs/`, code comments, or `git log`. **Read it at the start of a session.**
+- `docs/DownloadsPageDev.md` is the design and task list for the download-system refactor; `.ai-memory/downloads-*.md` records only the pitfalls hit while implementing it.
+- The local machine cannot build. Every build goes through GitHub Actions by pushing `dev` to the `github` remote; see `.ai-memory/ci-windows-build.md`.
 
-```text
-L:\Telegram\                    # BuildPath
-L:\Telegram\tdesktop\           # Repository (you work here)
-L:\Telegram\Libraries\          # 32-bit dependencies (Linux/macOS)
-L:\Telegram\win64\Libraries\    # 64-bit dependencies (Windows)
-L:\Telegram\ThirdParty\         # Build tools (NuGet, Python, etc.)
-```
+## Build
 
-Dependencies are located relative to the repository: `../Libraries`, `../win64/Libraries`, or `../ThirdParty`.
+Full build instructions live in `docs/building-win.md`, `docs/building-mac.md` and
+`docs/building-linux.md`. The short version:
 
-## Build Configuration
-
-### Build Commands
-
-**From repository root, run:**
+- Expected layout: the repository at `L:\Telegram\tdesktop`, with dependencies in
+  `../win64/Libraries` (64-bit), `../Libraries` (32-bit / Linux) and `../ThirdParty`.
+- Windows needs Visual Studio 2022 and the matching Native Tools Command Prompt
+  ("x64" / "x86" / "ARM64").
+- Configure an existing tree, then build:
 
 ```bash
 cmake --build out --config Debug --target Telegram
 ```
 
-That's it. The `out/` directory is already configured. The executable will be at `out/Debug/Telegram.exe`.
+The executable is at `out/Debug/Telegram.exe`. From WSL, the Linux Docker build is
+`Telegram/build/docker/centos_env/build_debug.sh`. When the shell cannot `cd`, pass
+quoted absolute paths.
 
-**From WSL, run through the Linux Docker build environment:**
+**Always Debug, never Release** — Release is extremely heavy and not needed for testing.
 
-```bash
-Telegram/build/docker/centos_env/build_debug.sh
-```
-
-**Important:** When running cmake from a shell that doesn't support `cd`, use quoted absolute paths:
-```bash
-cmake --build "l:\Telegram\tx64\out" --config Debug --target Telegram
-```
-
-**Never build Release** - it's extremely heavy and not needed for testing changes.
-
-## Platform-Specific Requirements
-
-### Windows
-- Requires Visual Studio 2022
-- Must run from appropriate Native Tools Command Prompt:
-  - "x64 Native Tools Command Prompt" for `win64`
-  - "x86 Native Tools Command Prompt" for `win`
-  - "ARM64 Native Tools Command Prompt" for `winarm`
-- Dependencies: `../win64/Libraries` (64-bit) or `../Libraries` (32-bit)
-
-### macOS
-- Requires Xcode
-- Dependencies: `../Libraries/local/Qt-*`
-- First-time configure of a new `out/` tree: set the `QT` environment variable
-  to the Qt version this checkout actually has, for example `export QT=6.11.1`
-  when `../Libraries/local/Qt-6.11.1` is the installed one. The value names a
-  directory, so it is the checkout's version, not a constant.
-- Reconfiguring an existing `out/` tree: do **not** export `QT`. Run
-  `env -u QT cmake -S . -B out` instead. `cmake/external/qt/package.cmake`
-  writes an exported `QT` into the `qt_requested` cache entry with `FORCE`, so
-  it overwrites the version the tree was already configured with instead of
-  being ignored. A value that disagrees with the configured tree then fails the
-  regeneration, and the generated project keeps the source list it was last
-  generated with: newly added sources are never compiled — which surfaces later
-  as undefined-symbol link errors rather than as a configure error — and newly
-  added `.style` modules leave the generated `style_*.h` includes stale.
-
-### Linux
-- Build dependencies in `../Libraries`
-- Set `QT` environment variable if needed
+**This machine never builds.** Every build is a GitHub Actions run on `windows-2022`
+triggered by pushing `dev` to `github`; see `.ai-memory/ci-windows-build.md` for the
+workflow, cache keys and the compile failures already diagnosed. Don't push unless the
+change is ready for a full CI round.
 
 ## Key Files
 
@@ -136,16 +98,24 @@ its path if the run stops before verification. Then rerun the same test once.
 If the signature persists after that clean rebuild, continue normal crash
 diagnosis or report the blocker. Do not loop clean rebuilds.
 
+### Reconfiguring a tree configured with a different Qt
+
+Reconfiguring an existing `out/` tree on macOS: do **not** export `QT`. Run
+`env -u QT cmake -S . -B out`. `cmake/external/qt/package.cmake` writes the exported
+`QT` into the `qt_requested` cache entry with `FORCE`, so it overwrites the version the
+tree was already configured with instead of being ignored. A value that disagrees with
+the configured tree then fails the regeneration, and the generated project keeps the
+source list it was last generated with — newly added sources are never compiled, which
+surfaces later as undefined-symbol link errors rather than a configure error, and newly
+added `.style` modules leave the generated `style_*.h` includes stale. (First-time
+configure of a fresh tree is the opposite: set `QT` to the `../Libraries/local/Qt-*`
+directory that this checkout actually has.)
+
 ### Build output locks
 
 An exact checkout executable may be running because the user is testing it. Do not terminate it or delete locked build
 outputs without explicit permission. Report the exact locked path and ask the
 user to close that checkout's Telegram/debugger before rebuilding.
-
-## Best Practices
-
-1. **Always use Debug builds** - Release builds are extremely heavy
-2. **Don't build Release configuration** - it's too heavy for testing
 
 ## Debug-Only Code
 
@@ -624,6 +594,31 @@ void MyWidget::paintEvent(QPaintEvent *e) {
     p.fillRect(rect(), st::chatInput.backgroundColor);
 }
 ```
+
+### Style globals are resolved at startup
+
+`st::` style objects are reference proxies whose `font` / `color` handles are filled in by
+`style::StartManager` (`lib_ui/ui/style/style_core.cpp:63`), which runs only from
+`Application::run()` (`core/application.cpp:347`). A namespace-scope copy is constructed
+during CRT static initialization — before that — so its handle is null for the whole
+process:
+
+```cpp
+// BAD - runs before style::StartManager, font stays null forever:
+const auto kNameStyle = style::TextStyle{ .font = st::downloadsBigNameFont };
+
+// GOOD - build it at use time, or store it as a member initialized in the ctor:
+auto NameStyle() {
+	auto result = style::TextStyle(st::defaultTextStyle);
+	result.font = st::downloadsBigNameFont;
+	return result;
+}
+```
+
+Prefer reading `st::...` inline. If a copy is unavoidable, make it a member initialized at
+construction and keep it alive as long as anything holding a pointer to it —
+`Ui::Text::String` stores `const style::TextStyle *` (`lib_ui/ui/text/text.h:545`), so a
+temporary style passed to `setText` dangles immediately.
 
 ## Localization
 
