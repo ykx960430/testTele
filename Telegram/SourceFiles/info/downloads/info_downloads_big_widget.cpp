@@ -362,6 +362,10 @@ bool ActionBar::enabled(Action action) const {
 }
 
 void ActionBar::paintEvent(QPaintEvent *) {
+	// WHY: the rects are only recomputed on resize, and a bar that never
+	// gets one (deferred while hidden) would keep null rects, so both
+	// labels get centered on x = 0 and the buttons hit-test nothing.
+	updateRects();
 	auto p = Painter(this);
 	p.fillRect(rect(), st::downloadsBigBarBg);
 	p.fillRect(
@@ -792,7 +796,8 @@ void InnerWidget::activateRow(int index) {
 	}
 	if (row.kind == Row::Kind::Paused) {
 		resumeRow(row);
-	} else if (row.kind == Row::Kind::Completed) {
+	} else if (row.kind == Row::Kind::Completed
+		|| row.kind == Row::Kind::Downloading) {
 		jumpToRow(row);
 	}
 }
