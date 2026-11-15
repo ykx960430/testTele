@@ -176,7 +176,7 @@ jobs:
       - name: Patch prepare.py
         shell: cmd
         run: |
-          powershell -Command "$c = Get-Content 'Telegram/build/prepare/prepare.py' -Raw; $c = $c -replace 'mingw-w64-x86_64-diffutils \^(\r?\n)?',''; $c = $c -replace 'https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830\.sfx\.exe','https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe'; Set-Content 'Telegram/build/prepare/prepare.py' $c -NoNewline; Write-Output 'OK: diffutils removed, MSYS2 installer -> aliyun mirror'"
+          powershell -Command "$c = Get-Content 'Telegram/build/prepare/prepare.py' -Raw; $c = $c -replace 'mingw-w64-x86_64-diffutils \^(\r?\n)?',''; $c = $c -replace 'powershell -Command ""iwr -OutFile \./msys64\.exe [^""]*""','powershell -Command ""curl.exe -L --retry 6 --retry-all-errors --retry-delay 5 -o ./msys64.exe https://mirrors.aliyun.com/msys2/distrib/x86_64/msys2-base-x86_64-20250830.sfx.exe; if (-not (Test-Path ./msys64.exe)) { curl.exe -L --retry 6 --retry-all-errors --retry-delay 5 -o ./msys64.exe https://github.com/msys2/msys2-installer/releases/download/2025-08-30/msys2-base-x86_64-20250830.sfx.exe }""'; Set-Content 'Telegram/build/prepare/prepare.py' $c -NoNewline; Write-Output 'OK: msys2 download retries and falls back to github'"
 
       - name: Prepare ThirdParty
         shell: cmd
