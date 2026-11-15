@@ -118,6 +118,108 @@ constexpr auto ByDocument = [](const auto &entry) {
 	return false;
 }
 
+[[nodiscard]] PausedDownloadDescriptor MakePausedDescriptor(
+	const DownloadObject &object,
+	const QString &path,
+	int64 ready,
+	int64 total,
+	int64 started,
+	PauseReason reason) {
+	auto descriptor = PausedDownloadDescriptor();
+	descriptor.path = path;
+	descriptor.ready = ready;
+	descriptor.total = total;
+	descriptor.started = started;
+	descriptor.reason = reason;
+	if (const auto document = object.document) {
+		descriptor.documentId = document->id;
+		descriptor.downloadType = DownloadType::Document;
+	} else if (const auto photo = object.photo) {
+		descriptor.photoId = photo->id;
+		descriptor.downloadType = DownloadType::Photo;
+	}
+	const auto item = object.item;
+	descriptor.itemIdPeer = item->history()->peer->id.value;
+	descriptor.itemIdMsg = item->id.bare;
+	descriptor.peerAccessHash = PeerAccessHash(item->history()->peer);
+	descriptor.sourceTitle = item->history()->peer->name();
+	descriptor.displayName = QFileInfo(path).fileName();
+	if (descriptor.displayName.isEmpty() && object.document) {
+		descriptor.displayName = object.document->filename();
+	}
+	return descriptor;
+}
+
+[[nodiscard]] QByteArray SerializePausedDownloads(
+	const std::vector<PausedDownloadDescriptor> &list) {
+	auto result = QByteArray();
+	const auto count = list.size();
+	auto constant = sizeof(quint64) // documentId
+		+ sizeof(quint64) // photoId
+		+ sizeof(qint64) // itemIdPeer
+		+ sizeof(qint64) // itemIdMsg
+		+ sizeof(quint64) // peerAccessHash
+		+ sizeof(qint32) // downloadType
+		+ sizeof(qint64) // ready
+		+ sizeof(qint64) // total
+		+ sizeof(qint64) // started
+		+ sizeof(qint32); // reason
+	auto size = sizeof(qint32) // version
+		+ sizeof(qint32) // count
+		+ count * constant;
+	for (const auto &d : list) {
+		size += Serialize::stringSize(d.path);
+		size += Serialize::stringSize(d.displayName);
+		size += Serialize::stringSize(d.sourceTitle);
+	}
+	result.reserve(size);
+	auto stream = QDataStream(&result, QIODevice::WriteOnly);
+	stream.setVersion(QDataStream::Qt_5_1);
+	stream << qint32(1) << qint32(count);
+	for (const auto &d : list) {
+		stream
+			<< quint64(d.documentId)
+			<< quint64(d.photoId)
+			<< qint64(d.itemIdPeer)
+			<< qint64(d.itemIdMsg)
+			<< quint64(d.peerAccessHash)
+			<< qint32(d.downloadType)
+			<< qint64(d.ready)
+			<< qint64(d.total)
+			<< qint64(d.started)
+			<< qint32(d.reason)
+			<< d.path
+			<< d.displayName
+			<< d.sourceTitle;
+	}
+	stream.device()->close();
+	return result;
+}
+
+[[nodiscard]] bool DeserializePausedDownload(
+	QDataStream &stream,
+	PausedDownloadDescriptor &d) {
+	auto reason = qint32();
+	auto downloadType = qint32();
+	stream
+		>> d.documentId
+		>> d.photoId
+		>> d.itemIdPeer
+		>> d.itemIdMsg
+		>> d.peerAccessHash
+		>> downloadType
+		>> d.ready
+		>> d.total
+		>> d.started
+		>> reason
+		>> d.path
+		>> d.displayName
+		>> d.sourceTitle;
+	d.downloadType = DownloadType(downloadType);
+	d.reason = PauseReason(reason);
+	return stream.status() == QDataStream::Ok;
+}
+
 struct DocumentDescriptor {
 	uint64 sessionUniqueId = 0;
 	DocumentId documentId = 0;
@@ -179,6 +281,13 @@ void DownloadManager::trackSession(not_null<Main::Session*> session) {
 	data.resolveNeeded = data.downloaded.size();
 	deserializePaused(
 		session->account().local().pausedDownloadsSerialized());
+	// WHY: a crash skips the pause-on-quit chain, so the still running
+	// downloads are only recoverable from their own snapshot. The snapshot is
+	// one global list, so restore it once instead of duplicating per account.
+	if (_sessions.size() == 1) {
+		deserializeInflight(
+			session->account().local().inflightDownloadsSerialized());
+	}
 	validatePausedDownloads();
 
 	session->data().documentLoadProgress(
@@ -287,6 +396,7 @@ void DownloadManager::addLoading(DownloadObject object) {
 	};
 	_loadingListChanges.fire({});
 	_clearLoadingTimer.cancel();
+	writeInflightPostponed();
 
 	check(item);
 }
@@ -323,6 +433,7 @@ void DownloadManager::addLoadingExternal(
 	};
 	_loadingListChanges.fire({});
 	_clearLoadingTimer.cancel();
+	writeInflightPostponed();
 }
 
 auto DownloadManager::lookupExternal(not_null<const HistoryItem*> item)
@@ -358,6 +469,7 @@ void DownloadManager::updateLoadingExternal(
 		.ready = _loadingProgress.current().ready + readyChange,
 		.total = _loadingProgress.current().total + totalChange,
 	};
+	writeInflightPostponed();
 	item->history()->owner().requestItemRepaint(item);
 }
 
@@ -473,6 +585,7 @@ void DownloadManager::check(
 			.ready = _loadingProgress.current().ready + readyChange,
 			.total = _loadingProgress.current().total + totalChange,
 		};
+		writeInflightPostponed();
 	}
 }
 
@@ -816,31 +929,21 @@ void DownloadManager::pauseAll(Main::Session *onlyInSession) {
 			const auto total = entry.total;
 			const auto started = entry.started;
 
-			auto descriptor = PausedDownloadDescriptor();
-			descriptor.path = path;
-			descriptor.total = total;
-			descriptor.started = started;
+			auto descriptor = MakePausedDescriptor(
+				object,
+				path,
+				0,
+				total,
+				started,
+				PauseReason::Auto);
 			auto completed = false;
 			if (const auto document = object.document) {
 				completed = !document->filepath(true).isEmpty();
 				document->pauseLoad(&descriptor.ready);
-				descriptor.documentId = document->id;
-				descriptor.downloadType = DownloadType::Document;
 			} else if (const auto photo = object.photo) {
 				photo->cancel();
-				descriptor.photoId = photo->id;
-				descriptor.downloadType = DownloadType::Photo;
 			}
 			if (!item->isAdminLogEntry() && !completed) {
-				descriptor.itemIdPeer = item->history()->peer->id.value;
-				descriptor.itemIdMsg = item->id.bare;
-				descriptor.peerAccessHash = PeerAccessHash(item->history()->peer);
-				descriptor.sourceTitle = item->history()->peer->name();
-				descriptor.displayName = QFileInfo(descriptor.path).fileName();
-				if (descriptor.displayName.isEmpty() && object.document) {
-					descriptor.displayName = object.document->filename();
-				}
-				descriptor.reason = PauseReason::Auto;
 				_paused.push_back(std::move(descriptor));
 			}
 			dropEntry(data, item);
@@ -875,28 +978,18 @@ void DownloadManager::pauseOne(not_null<const HistoryItem*> item) {
 	const auto total = it->total;
 	const auto started = it->started;
 
-	auto descriptor = PausedDownloadDescriptor();
-	descriptor.path = path;
-	descriptor.total = total;
-	descriptor.started = started;
+	auto descriptor = MakePausedDescriptor(
+		object,
+		path,
+		0,
+		total,
+		started,
+		PauseReason::User);
 	if (const auto document = object.document) {
 		document->pauseLoad(&descriptor.ready);
-		descriptor.documentId = document->id;
-		descriptor.downloadType = DownloadType::Document;
 	} else if (const auto photo = object.photo) {
 		photo->cancel();
-		descriptor.photoId = photo->id;
-		descriptor.downloadType = DownloadType::Photo;
 	}
-	descriptor.itemIdPeer = item->history()->peer->id.value;
-	descriptor.itemIdMsg = item->id.bare;
-	descriptor.peerAccessHash = PeerAccessHash(item->history()->peer);
-	descriptor.sourceTitle = item->history()->peer->name();
-	descriptor.displayName = QFileInfo(descriptor.path).fileName();
-	if (descriptor.displayName.isEmpty() && object.document) {
-		descriptor.displayName = object.document->filename();
-	}
-	descriptor.reason = PauseReason::User;
 	_paused.push_back(std::move(descriptor));
 
 	// pauseLoad() re-enters through check() and may have dropped the entry.
@@ -1242,6 +1335,7 @@ void DownloadManager::remove(
 	data.downloading.erase(i);
 	_loadingListChanges.fire({});
 	_loadingProgress = now;
+	writeInflightPostponed();
 	if (_loading.empty() && !_loadingDone.empty()) {
 		_clearLoadingTimer.callOnce(kClearLoadingTimeout);
 	}
@@ -1428,6 +1522,20 @@ void DownloadManager::flushPaused() {
 	}
 }
 
+void DownloadManager::writeInflightPostponed() {
+	for (auto &[session, data] : _sessions) {
+		session->account().local().updateInflightDownloads(
+			[this, weak = base::make_weak(session)]()
+			-> std::optional<QByteArray> {
+				const auto strong = weak.get();
+				if (!strong) {
+					return std::nullopt;
+				}
+				return serializeInflight();
+			});
+	}
+}
+
 Fn<std::optional<QByteArray>()> DownloadManager::serializator(
 		not_null<Main::Session*> session) const {
 	return [this, weak = base::make_weak(session)]()
@@ -1537,48 +1645,26 @@ std::vector<DownloadedId> DownloadManager::deserialize(
 }
 
 QByteArray DownloadManager::serializePaused() const {
-	auto result = QByteArray();
-	const auto count = _paused.size();
-	auto constant = sizeof(quint64) // documentId
-		+ sizeof(quint64) // photoId
-		+ sizeof(qint64) // itemIdPeer
-		+ sizeof(qint64) // itemIdMsg
-		+ sizeof(quint64) // peerAccessHash
-		+ sizeof(qint32) // downloadType
-		+ sizeof(qint64) // ready
-		+ sizeof(qint64) // total
-		+ sizeof(qint64) // started
-		+ sizeof(qint32); // reason
-	auto size = sizeof(qint32) // version
-		+ sizeof(qint32) // count
-		+ count * constant;
-	for (const auto &d : _paused) {
-		size += Serialize::stringSize(d.path);
-		size += Serialize::stringSize(d.displayName);
-		size += Serialize::stringSize(d.sourceTitle);
+	return SerializePausedDownloads(_paused);
+}
+
+QByteArray DownloadManager::serializeInflight() const {
+	auto list = std::vector<PausedDownloadDescriptor>();
+	for (const auto &[session, data] : _sessions) {
+		for (const auto &entry : data.downloading) {
+			if (entry.done || entry.object.item->isAdminLogEntry()) {
+				continue;
+			}
+			list.push_back(MakePausedDescriptor(
+				entry.object,
+				entry.path,
+				entry.ready,
+				entry.total,
+				entry.started,
+				PauseReason::Auto));
+		}
 	}
-	result.reserve(size);
-	auto stream = QDataStream(&result, QIODevice::WriteOnly);
-	stream.setVersion(QDataStream::Qt_5_1);
-	stream << qint32(1) << qint32(count);
-	for (const auto &d : _paused) {
-		stream
-			<< quint64(d.documentId)
-			<< quint64(d.photoId)
-			<< qint64(d.itemIdPeer)
-			<< qint64(d.itemIdMsg)
-			<< quint64(d.peerAccessHash)
-			<< qint32(d.downloadType)
-			<< qint64(d.ready)
-			<< qint64(d.total)
-			<< qint64(d.started)
-			<< qint32(d.reason)
-			<< d.path
-			<< d.displayName
-			<< d.sourceTitle;
-	}
-	stream.device()->close();
-	return result;
+	return SerializePausedDownloads(list);
 }
 
 void DownloadManager::deserializePaused(const QByteArray &serialized) {
@@ -1593,30 +1679,11 @@ void DownloadManager::deserializePaused(const QByteArray &serialized) {
 	if (stream.status() != QDataStream::Ok || version < 1 || count <= 0) {
 		return;
 	}
-	_paused.clear();
-	_paused.reserve(count);
+	auto list = std::vector<PausedDownloadDescriptor>();
+	list.reserve(count);
 	for (auto i = 0; i != count; ++i) {
 		auto d = PausedDownloadDescriptor();
-		auto reason = qint32();
-		auto downloadType = qint32();
-		stream
-			>> d.documentId
-			>> d.photoId
-			>> d.itemIdPeer
-			>> d.itemIdMsg
-			>> d.peerAccessHash
-			>> downloadType
-			>> d.ready
-			>> d.total
-			>> d.started
-			>> reason
-			>> d.path
-			>> d.displayName
-			>> d.sourceTitle;
-		d.downloadType = DownloadType(downloadType);
-		d.reason = PauseReason(reason);
-		if (stream.status() != QDataStream::Ok) {
-			_paused.clear();
+		if (!DeserializePausedDownload(stream, d)) {
 			return;
 		}
 		// WHY: builds before the path fix stored the .temp path as the final
@@ -1627,6 +1694,35 @@ void DownloadManager::deserializePaused(const QByteArray &serialized) {
 			&& !QFileInfo(d.path + u".temp"_q).exists()) {
 			d.path.chop(5);
 		}
+		list.push_back(std::move(d));
+	}
+	_paused = std::move(list);
+}
+
+void DownloadManager::deserializeInflight(const QByteArray &serialized) {
+	if (serialized.isEmpty()) {
+		return;
+	}
+	QDataStream stream(serialized);
+	stream.setVersion(QDataStream::Qt_5_1);
+	auto version = qint32();
+	auto count = qint32();
+	stream >> version >> count;
+	if (stream.status() != QDataStream::Ok || version < 1 || count <= 0) {
+		return;
+	}
+	auto list = std::vector<PausedDownloadDescriptor>();
+	list.reserve(count);
+	for (auto i = 0; i != count; ++i) {
+		auto d = PausedDownloadDescriptor();
+		if (!DeserializePausedDownload(stream, d)) {
+			return;
+		}
+		list.push_back(std::move(d));
+	}
+	// WHY: an in-flight download could not be paused before the crash, so it
+	// is restored in the paused list, where the user can resume it.
+	for (auto &d : list) {
 		_paused.push_back(std::move(d));
 	}
 }

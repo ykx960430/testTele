@@ -256,6 +256,9 @@ private:
 
 	[[nodiscard]] QByteArray serializePaused() const;
 	void deserializePaused(const QByteArray &data);
+	[[nodiscard]] QByteArray serializeInflight() const;
+	void deserializeInflight(const QByteArray &data);
+	void writeInflightPostponed();
 	void validatePausedDownloads();
 
 	base::flat_map<not_null<Main::Session*>, SessionData> _sessions;

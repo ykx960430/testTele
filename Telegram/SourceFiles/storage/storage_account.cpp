@@ -862,9 +862,15 @@ void Account::writeLocations() {
 			_pausedDownloadsSerialized = std::move(*serialized);
 		}
 	}
+	if (_inflightDownloadsSerialize) {
+		if (auto serialized = _inflightDownloadsSerialize()) {
+			_inflightDownloadsSerialized = std::move(*serialized);
+		}
+	}
 	if (_fileLocations.isEmpty()
 		&& _downloadsSerialized.isEmpty()
-		&& _pausedDownloadsSerialized.isEmpty()) {
+		&& _pausedDownloadsSerialized.isEmpty()
+		&& _inflightDownloadsSerialized.isEmpty()) {
 		if (_locationsKey) {
 			ClearKey(_locationsKey, _basePath);
 			_locationsKey = 0;
@@ -902,6 +908,7 @@ void Account::writeLocations() {
 
 		size += sizeof(quint32); // legacy webLocationsCount
 		size += Serialize::bytearraySize(_downloadsSerialized);
+		size += Serialize::bytearraySize(_inflightDownloadsSerialized);
 
 		EncryptedDescriptor data(size);
 		auto legacyTypeField = 0;
@@ -929,6 +936,11 @@ void Account::writeLocations() {
 			data.stream << QByteArray();
 		} else {
 			data.stream << _pausedDownloadsSerialized;
+		}
+		if (_inflightDownloadsSerialized.isEmpty()) {
+			data.stream << QByteArray();
+		} else {
+			data.stream << _inflightDownloadsSerialized;
 		}
 
 		FileWriteDescriptor file(_locationsKey, _basePath);
@@ -1018,6 +1030,9 @@ void Account::readLocations() {
 				locations.stream >> _downloadsSerialized;
 				if (!locations.stream.atEnd()) {
 					locations.stream >> _pausedDownloadsSerialized;
+					if (!locations.stream.atEnd()) {
+						locations.stream >> _inflightDownloadsSerialized;
+					}
 				}
 			}
 		}
@@ -1042,6 +1057,16 @@ void Account::updatePausedDownloads(
 
 QByteArray Account::pausedDownloadsSerialized() const {
 	return _pausedDownloadsSerialized;
+}
+
+void Account::updateInflightDownloads(
+		Fn<std::optional<QByteArray>()> inflightDownloadsSerialize) {
+	_inflightDownloadsSerialize = std::move(inflightDownloadsSerialize);
+	writeLocationsDelayed();
+}
+
+QByteArray Account::inflightDownloadsSerialized() const {
+	return _inflightDownloadsSerialized;
 }
 
 void Account::writeSessionSettings() {

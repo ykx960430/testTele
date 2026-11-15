@@ -113,6 +113,10 @@ public:
 		Fn<std::optional<QByteArray>()> pausedDownloadsSerialize);
 	[[nodiscard]] QByteArray pausedDownloadsSerialized() const;
 
+	void updateInflightDownloads(
+		Fn<std::optional<QByteArray>()> inflightDownloadsSerialize);
+	[[nodiscard]] QByteArray inflightDownloadsSerialized() const;
+
 	// Writes the pending file locations right now instead of waiting for the
 	// delayed write, so that a quit right after pausing keeps the pause list.
 	void writeLocationsForce();
@@ -344,6 +348,9 @@ private:
 
 	QByteArray _pausedDownloadsSerialized;
 	Fn<std::optional<QByteArray>()> _pausedDownloadsSerialize;
+
+	QByteArray _inflightDownloadsSerialized;
+	Fn<std::optional<QByteArray>()> _inflightDownloadsSerialize;
 
 	FileKey _prefsKey = 0;
 	FileKey _locationsKey = 0;

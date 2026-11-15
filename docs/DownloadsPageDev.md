@@ -759,6 +759,7 @@ public:
 | 退出弹框阻止，确认后 cancel+remove | 不弹框，自动 pause，保留所有状态 |
 | cancel() 删除文件 | pause() 仅停止网络，保留文件 |
 | downloading 列表不持久化 | paused 列表持久化到本地存储 |
+| 崩溃/闪退即丢下载中任务 | downloading 快照单独落盘，重启后并入暂停列表 |
 | resume 时重新下载 | resume 时从上次 offset 续传 |
 
 #### 3.3.2 暂停列表数据结构 `PausedDownload`
@@ -1408,6 +1409,22 @@ download_progress : ... {}
 `writeLocations()` 内部本来就会调用 `_pausedDownloadsSerialize()`，所以「强制写 locations」
 天然覆盖暂停列表，不需要额外的存储 key。
 
+**下载中列表的独立快照（崩溃恢复）**：locations 文件尾部依次追加三个 blob
+`downloadsSerialized` → `pausedDownloadsSerialized` → `inflightDownloadsSerialized`，
+新字段一律追加在末尾，读取用 `!stream.atEnd()` 逐级守卫（见 AGENTS.md 的序列化顺序约束）。
+
+- 写入：`DownloadManager::writeInflightPostponed()` 在 `addLoading` / `addLoadingExternal` /
+  `updateLoadingExternal` / `remove()` / `check()`（有进度变化时）为每个 session 注册
+  `_inflightDownloadsSerialize` 回调，复用 `writeLocationsDelayed()` 的 1s 去抖。内容是当时
+  所有未 `done`、非 admin-log 的 `DownloadingId` 转成 `PausedDownloadDescriptor`
+  （`PauseReason::Auto`）。
+- 恢复：`trackSession()` 在 `validatePausedDownloads()` 之前调用 `deserializeInflight()`，
+  把条目**并入 `_paused`**（不是自动续传）——崩溃前任务来不及暂停，恢复成暂停状态最安全，
+  也与优雅退出链路（同样落在 `_paused`）收敛到同一形态。多账号时只在
+  `_sessions.size() == 1` 时恢复一次，避免全局快照被重复追加。
+- 快照里的 `ready` 走 `validatePausedDownloads()` 的既有夹紧：`.temp` 偏小则下调，
+  `.temp` 不存在则归零。
+
 **导出 / 导入**（顶栏 ⋮ 菜单，`Widget::exportPausedList()` / `importPausedList()`）：
 
 - 导出：`DownloadManager::exportPausedJson()` → `FileDialog::GetWritePath`，默认名 `downloads.json`，
@@ -1634,6 +1651,7 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 - [x] 退出持久化保证（`writeLocationsForce` + `flushPaused`）
 - [x] 续传偏移两个 bug（`currentOffset()` / `checkForOpen()` 截断）
 - [x] Code review 一轮：`pause()` 取偏移顺序、BigPage done 条目重复、`_pendingResumeOffset` 泄漏、暂停记录强制落盘
+- [x] 下载中列表落盘（`_inflightDownloadsSerialized`，崩溃后恢复为暂停行）
 - [x] 第一轮真机反馈的 5 个 bug（迭代器失效崩溃 ×2、重启丢任务、另存为文件名、下载中导出为空）
 - [x] 第一轮真机反馈的 UI 项：侧边栏按钮置底、来源会话、固定操作条（全部暂停/继续）、已完成倒序、中文文案
 - [x] 第二轮反馈：封面缩略图（U2a）、层宽加倍到 780px（U2c）、下载中可折叠（U2d）、已完成项多行完整文件名 + 大小·来源 + 点击跳转（U3a/U3b）、行右侧暂停/继续图标（U3c）、暂停任务保留在「下载中」组（U3d）

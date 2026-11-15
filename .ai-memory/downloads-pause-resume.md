@@ -49,7 +49,24 @@ if (_fileIsOpen) { _file.close(); _fileIsOpen = false; }
 也要用，否则 `~Account()` 不补写 locations，1 s 内退出会丢/重记录。
 `flushPaused()` 是 private，`writePostponed()` 只更新内存里的序列化缓存。
 
-## 5. 冗余但**不要**动的两处
+## 5. 下载中列表的落盘（崩溃恢复，`_inflightDownloadsSerialized`）
+
+优雅退出链路（`pauseAll → flushPaused → writeLocationsForce`）覆盖不到闪退，
+所以「下载中」必须有一份独立快照，且写入要**勤**（进度变化就写），不能只靠退出。
+
+- 字段一律**追加**在 locations 文件末尾：downloads → paused → inflight，
+  读取逐级 `!stream.atEnd()` 守卫。中间插字段会让旧版本读串行。
+- 写入调用点只需覆盖 `downloading` 的所有变更口：`addLoading`、`addLoadingExternal`、
+  `updateLoadingExternal`、`remove()`、`check()` 的进度分支。
+  `pauseAll`/`pauseOne`/`loadingStop`/`clearLoading` 都走 `remove()`，不用再单独加。
+- 恢复时**并入 `_paused`**（`reason = Auto`），不要自动续传：崩溃前任务来不及暂停，
+  恢复成暂停最安全，也与优雅退出收敛到同一形态。必须在 `validatePausedDownloads()`
+  之前并入，让 `.temp` 夹紧逻辑生效。
+- `_sessions.size() == 1` 才恢复：快照是全局一份，多账号逐个 trackSession 会重复追加。
+- `DownloadingId.path` 是**最终路径**（`FileLoader::_filename`），`.temp` 是
+  `path + ".temp"`，所以快照字段与暂停列表完全同构，能直接复用序列化函数。
+
+## 6. 冗余但**不要**动的两处
 
 - `Memento(not_null<UserData*> self)` 的 `self` 未使用：这是所有 Info
   section 的统一签名（`Info::Xxx::Make(self)`），改了会破坏一致性。
