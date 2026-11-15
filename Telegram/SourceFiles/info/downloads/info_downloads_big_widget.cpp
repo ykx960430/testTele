@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "base/algorithm.h"
 #include "base/flat_map.h"
+#include "base/timer.h"
 #include "ui/image/image.h"
 #include "ui/image/image_prepare.h"
 #include "ui/painter.h"
@@ -479,6 +480,7 @@ private:
 	QPoint _lastClick;
 	bool _downloadingCollapsed = false;
 	bool _rebuilding = false;
+	base::Timer _rebuildTimer;
 	int _rowsVersion = 0;
 	int _layoutVersion = -1;
 	int _layoutWidth = -1;
@@ -494,6 +496,8 @@ InnerWidget::InnerWidget(
 , _nameStyle(MakeNameStyle()) {
 	setMouseTracking(true);
 
+	_rebuildTimer.setCallback([=] { rebuild(); });
+
 	auto &manager = Core::App().downloadManager();
 	// WHY: loadingProgressValue() replays the current value on subscription,
 	// which would rebuild the rows a second time right after this one.
@@ -505,7 +509,9 @@ InnerWidget::InnerWidget(
 		manager.loadedRemoved() | rpl::map_to(true),
 		manager.loadedResolveDone() | rpl::map_to(true)
 	) | rpl::on_next([=] {
-		rebuild();
+		// WHY: loadedAdded() fires once per resolved entry, so rebuilding on
+		// every event re-runs the whole resolve() (disk + MTProto) N times.
+		_rebuildTimer.callOnce(crl::time(0));
 	}, lifetime());
 
 	manager.loadingProgressValue(
@@ -833,6 +839,9 @@ QRect InnerWidget::toggleRect(const Row &row) const {
 void InnerWidget::paintEvent(QPaintEvent *e) {
 	auto p = Painter(this);
 	if (_rows.empty()) {
+		// WHY: the loaded entries only appear once resolve() has filled them,
+		// so an empty list right after opening means "still loading".
+		const auto loading = Core::App().downloadManager().loadedCount() > 0;
 		p.setFont(st::downloadsBigEmptyFont);
 		p.setPen(st::downloadsBigEmptyFg);
 		p.drawText(
@@ -842,9 +851,13 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 				width(),
 				st::downloadsBigEmptyFont->height),
 			Qt::AlignHCenter | Qt::AlignVCenter,
-			Tr(
-				tr::lng_downloads_big_empty(tr::now),
-				u"还没有下载任务"_q));
+			loading
+				? Tr(
+					tr::lng_downloads_big_loading(tr::now),
+					u"正在读取下载记录…"_q)
+				: Tr(
+					tr::lng_downloads_big_empty(tr::now),
+					u"还没有下载任务"_q));
 		return;
 	}
 	const auto clip = e->rect();

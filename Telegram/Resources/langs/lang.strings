@@ -5670,6 +5670,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_downloads_delete_in_cloud" = "They will be deleted from your disk, but will remain accessible in the cloud.";
 
 "lng_downloads_big_empty" = "No downloads yet";
+"lng_downloads_big_loading" = "Reading downloads";
 "lng_downloads_big_total" = "{size} in total";
 "lng_downloads_big_downloading" = "Downloading";
 "lng_downloads_big_paused" = "Paused";
