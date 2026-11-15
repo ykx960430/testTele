@@ -23,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "base/algorithm.h"
+#include "base/flat_map.h"
 #include "ui/image/image.h"
 #include "ui/image/image_prepare.h"
 #include "ui/painter.h"
@@ -44,8 +45,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace Info::DownloadsBig {
 namespace {
-
-const auto kNameStyle = style::TextStyle{ .font = st::downloadsBigNameFont };
 
 [[nodiscard]] bool ChineseUi() {
 	const auto id = Lang::LanguageIdOrDefault(Lang::Id());
@@ -160,15 +159,26 @@ struct Row {
 	return history->peer->name();
 }
 
-[[nodiscard]] QImage ThumbnailFor(const Data::DownloadObject &object) {
+[[nodiscard]] QImage ThumbnailFor(
+		const Data::DownloadObject &object,
+		base::flat_map<uint64, QImage> &cache) {
 	const auto size = st::downloadsBigThumbSize;
 	const Image *image = nullptr;
+	auto id = uint64(0);
 	if (object.document) {
+		id = object.document->id;
 		const auto view = object.document->createMediaView();
 		image = view->thumbnail() ? view->thumbnail() : view->thumbnailInline();
 	} else if (object.photo) {
+		id = object.photo->id;
 		const auto view = object.photo->createMediaView();
 		image = view->thumbnailInline();
+	}
+	if (!id) {
+		return QImage();
+	}
+	if (const auto i = cache.find(id); i != cache.end()) {
+		return i->second;
 	}
 	if (!image || image->original().isNull()) {
 		return QImage();
@@ -177,10 +187,24 @@ struct Row {
 		image->original(),
 		QSize(size, size),
 		{ .outer = QSize(size, size) });
-	return Images::Round(
+	const auto result = Images::Round(
 		std::move(prepared),
 		Images::Option::RoundSmall,
 		QRect(QPoint(0, 0), QSize(size, size)));
+	if (cache.size() > 200) {
+		cache.clear();
+	}
+	cache.emplace(id, result);
+	return result;
+}
+
+// WHY: the style globals are only resolved by style::StartManager, which
+// runs once the app starts and never before the static initializers, so a
+// namespace-scope copy would keep a null font for the whole session.
+[[nodiscard]] style::TextStyle MakeNameStyle() {
+	auto result = style::TextStyle(st::defaultTextStyle);
+	result.font = st::downloadsBigNameFont;
+	return result;
 }
 
 // WHY: the name has to be shown in full, so a long unbroken name is split
@@ -433,7 +457,9 @@ private:
 	void paintItem(Painter &p, const Row &row, bool hovered) const;
 
 	not_null<Info::Controller*> _controller;
+	style::TextStyle _nameStyle;
 	std::vector<Row> _rows;
+	base::flat_map<uint64, QImage> _thumbs;
 	int _downloadingBegin = 0;
 	int _downloadingCount = 0;
 	int _pausedCount = 0;
@@ -441,6 +467,10 @@ private:
 	QPoint _lastClick;
 	bool _downloadingCollapsed = false;
 	bool _rebuilding = false;
+	int _rowsVersion = 0;
+	int _layoutVersion = -1;
+	int _layoutWidth = -1;
+	int _layoutHeight = 0;
 
 };
 
@@ -448,7 +478,8 @@ InnerWidget::InnerWidget(
 	QWidget *parent,
 	not_null<Info::Controller*> controller)
 : RpWidget(parent)
-, _controller(controller) {
+, _controller(controller)
+, _nameStyle(MakeNameStyle()) {
 	setMouseTracking(true);
 
 	auto &manager = Core::App().downloadManager();
@@ -518,8 +549,8 @@ void InnerWidget::buildRows() {
 		row.path = id->path;
 		row.item = id->object.item.get();
 		row.title = TitleFor(id->path, DocumentName(&id->object));
-		row.titleText.setText(kNameStyle, row.title);
-		row.thumb = ThumbnailFor(id->object);
+		row.titleText.setText(_nameStyle, row.title);
+		row.thumb = ThumbnailFor(id->object, _thumbs);
 		row.status = JoinStatus(
 			SourceText(id->object.item->history()->peer->name()),
 			ProgressText(id->ready, id->total));
@@ -539,7 +570,7 @@ void InnerWidget::buildRows() {
 		if (row.title.isEmpty()) {
 			row.title = Tr(tr::lng_downloads_big_paused(tr::now), u"已暂停"_q);
 		}
-		row.titleText.setText(kNameStyle, row.title);
+		row.titleText.setText(_nameStyle, row.title);
 		row.status = JoinStatus(
 			Tr(tr::lng_downloads_big_paused(tr::now), u"已暂停"_q),
 			JoinStatus(
@@ -560,9 +591,9 @@ void InnerWidget::buildRows() {
 		row.started = id->started;
 		row.itemId = id->itemId;
 		row.title = TitleFor(id->path, DocumentName(id->object.get()));
-		row.titleText.setText(kNameStyle, row.title);
+		row.titleText.setText(_nameStyle, row.title);
 		if (id->object) {
-			row.thumb = ThumbnailFor(*id->object);
+			row.thumb = ThumbnailFor(*id->object, _thumbs);
 		}
 		row.status = JoinStatus(
 			Ui::FormatSizeText(id->size),
@@ -609,6 +640,7 @@ void InnerWidget::buildRows() {
 		result.push_back(std::move(row));
 	}
 
+	++_rowsVersion;
 	_rows = std::move(result);
 }
 
@@ -619,7 +651,12 @@ void InnerWidget::updateProgress() {
 	auto &manager = Core::App().downloadManager();
 	auto index = _downloadingBegin;
 	auto count = 0;
-	const auto loadingCount = _downloadingCount - _pausedCount;
+	const auto loadingCount = std::max(_downloadingCount - _pausedCount, 0);
+	if (_downloadingBegin < 0
+		|| _downloadingBegin + loadingCount > int(_rows.size())) {
+		rebuild();
+		return;
+	}
 	for (const auto id : manager.loadingList()) {
 		if (id->done) {
 			continue;
@@ -639,7 +676,8 @@ void InnerWidget::updateProgress() {
 		rebuild();
 		return;
 	}
-	if (!_downloadingCount) {
+	if (!_downloadingCount
+		|| _downloadingBegin + _downloadingCount > int(_rows.size())) {
 		return;
 	}
 	const auto first = _rows[_downloadingBegin].geometry.top();
@@ -653,6 +691,9 @@ int InnerWidget::relayout(int newWidth) {
 		return st::downloadsBigEmptyTop
 			+ st::downloadsBigEmptyFont->height
 			+ st::downloadsBigPadding.bottom();
+	}
+	if (_layoutWidth == newWidth && _layoutVersion == _rowsVersion) {
+		return _layoutHeight;
 	}
 	const auto &padding = st::downloadsBigRowPadding;
 	const auto thumbSize = st::downloadsBigThumbSize;
@@ -701,7 +742,10 @@ int InnerWidget::relayout(int newWidth) {
 			: QRect();
 		top += rowHeight;
 	}
-	return top + st::downloadsBigPadding.bottom();
+	_layoutWidth = newWidth;
+	_layoutVersion = _rowsVersion;
+	_layoutHeight = top + st::downloadsBigPadding.bottom();
+	return _layoutHeight;
 }
 
 int InnerWidget::rowAt(QPoint position) const {

@@ -8347,7 +8347,11 @@ ClickHandlerPtr OverlayWidget::ensureCaptionExpandLink() {
 ClickHandlerPtr OverlayWidget::ensureCaptionCopyLink() {
 	if (!_captionCopyLink) {
 		const auto copy = crl::guard(_widget, [=] {
-			TextUtilities::SetClipboardText(_caption.toTextForMimeData());
+			// WHY: a caption is copied as one line, so breaks became spaces.
+			auto text = _caption.toTextForMimeData().expanded;
+			text.replace(QChar(u'\r'), QString());
+			text.replace(QChar(u'\n'), QString(u' '));
+			TextUtilities::SetClipboardText(TextForMimeData::Simple(text));
 			showSaveMsgToastWith(
 				QString(),
 				{ tr::lng_text_copied(tr::now) },
