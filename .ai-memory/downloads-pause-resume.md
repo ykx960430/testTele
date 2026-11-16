@@ -72,3 +72,22 @@ if (_fileIsOpen) { _file.close(); _fileIsOpen = false; }
   section 的统一签名（`Info::Xxx::Make(self)`），改了会破坏一致性。
 - `Row` 存整个 `PausedDownloadDescriptor`：`resumeOne()` 只读其中 5 个字段，
   但裁剪需要改 `resumeOne()` 签名去凑一个 descriptor，收益为零、风险为正。
+
+## 7. 「无法继续该下载」= 消息不在内存（不是 .temp 的问题）
+
+症状：下载 → 退出 APP → 重开 → 点任何一项的「开始」都弹 `无法继续该下载。`。
+
+`Session::data().message(FullMsgId)` **只查内存 `_messages`**（data_session.cpp，无数据库回退），
+重启后没打开过的会话一条消息都没有。`resumeOne()` 找不到 `DocumentData` 就 `return false`，
+`save()` 根本没被调用 → MTP 日志里连一条 `upload_getFile` 都没有（这是最快的判据：
+`mtp_*.txt` 里重启时间点之后没有对应文档的请求，说明失败在 `save()` 之前）。
+`Session::document(DocumentId)` 也不可用：它返回的 stub 没有 `_dc` / `_access` / `size`。
+
+修法：`resumeOne()` 找不到文档时调 `requestPausedResume()`，用
+`messages.GetMessages` / `channels.GetMessages` + `inputMessageID` 把消息拉回来，
+`processExistingMessages()` 入内存后走同一条 `resumePaused()`。
+**不要**改成「直接构造 DocumentData」——dc/accessHash/size/fileReference 只能来自消息。
+补拉还顺带解决了 fileReference 过期：用新消息的引用，而不是本地 DB 里的旧引用。
+
+排查这类问题先分清「失败在 `save()` 之前还是之后」：之后会有 `upload_getFile`
+（offset = `ready`），之前一条请求都没有。

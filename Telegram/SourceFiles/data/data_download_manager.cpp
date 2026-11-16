@@ -16,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_user.h"
 #include "data/data_channel.h"
 #include "data/data_file_origin.h"
+#include "base/debug_log.h"
 #include "base/unixtime.h"
 #include "base/random.h"
 #include "main/main_session.h"
@@ -218,6 +219,14 @@ constexpr auto ByDocument = [](const auto &entry) {
 	d.downloadType = DownloadType(downloadType);
 	d.reason = PauseReason(reason);
 	return stream.status() == QDataStream::Ok;
+}
+
+[[nodiscard]] bool SamePausedRecord(
+	const PausedDownloadDescriptor &a,
+	const PausedDownloadDescriptor &b) {
+	return (a.documentId == b.documentId)
+		&& (a.itemIdPeer == b.itemIdPeer)
+		&& (a.itemIdMsg == b.itemIdMsg);
 }
 
 struct DocumentDescriptor {
@@ -1005,11 +1014,8 @@ bool DownloadManager::resumeOne(const PausedDownloadDescriptor &descriptor) {
 	if (descriptor.downloadType != DownloadType::Document) {
 		return false;
 	}
-	const auto i = ranges::find_if(_paused, [&](
-			const PausedDownloadDescriptor &d) {
-		return (d.documentId == descriptor.documentId)
-			&& (d.itemIdPeer == descriptor.itemIdPeer)
-			&& (d.itemIdMsg == descriptor.itemIdMsg);
+	const auto i = ranges::find_if(_paused, [&](const auto &d) {
+		return SamePausedRecord(d, descriptor);
 	});
 	if (i == _paused.end() || i->path.isEmpty()) {
 		return false;
@@ -1032,7 +1038,25 @@ bool DownloadManager::resumeOne(const PausedDownloadDescriptor &descriptor) {
 		}
 	}
 	if (!document) {
-		return false;
+		// WHY: a restarted app has no message in memory, so the document can't
+		// be reached until the server sends that message.
+		DEBUG_LOG(("[DL] resume: msg %1 not in memory, requesting"
+			).arg(paused.itemIdMsg));
+		requestPausedResume(paused);
+		return true;
+	}
+	return resumePaused(paused, item, document);
+}
+
+bool DownloadManager::resumePaused(
+		const PausedDownloadDescriptor &paused,
+		HistoryItem *item,
+		DocumentData *document) {
+	const auto i = ranges::find_if(_paused, [&](const auto &d) {
+		return SamePausedRecord(d, paused);
+	});
+	if (i == _paused.end()) {
+		return true;
 	}
 	// WHY: the download may have finished or been restarted from the chat, in
 	// which case resuming is impossible and the record would never go away.
@@ -1056,7 +1080,9 @@ bool DownloadManager::resumeOne(const PausedDownloadDescriptor &descriptor) {
 		return false;
 	}
 	document->resumeLoad(paused.ready);
-	document->save(Data::FileOrigin(itemId), paused.path);
+	document->save(Data::FileOrigin(FullMsgId(
+		PeerId(paused.itemIdPeer),
+		MsgId(paused.itemIdMsg))), paused.path);
 	if (!document->loading()) {
 		// The download did not actually start (for example the temp file was
 		// too short to resume from), so keep the paused record instead of
@@ -1071,6 +1097,59 @@ bool DownloadManager::resumeOne(const PausedDownloadDescriptor &descriptor) {
 		.document = document,
 	});
 	return true;
+}
+
+void DownloadManager::requestPausedResume(
+		const PausedDownloadDescriptor &paused) {
+	if (!IsServerMsgId(paused.itemIdMsg)) {
+		return;
+	}
+	const auto itemId = FullMsgId(
+		PeerId(paused.itemIdPeer),
+		MsgId(paused.itemIdMsg));
+	const auto isChannel = peerIsChannel(itemId.peer);
+	const auto ids = QVector<MTPInputMessage>{
+		MTP_inputMessageID(MTP_int(MsgId(paused.itemIdMsg).bare)),
+	};
+	for (auto &[session, data] : _sessions) {
+		const auto weak = base::make_weak(session);
+		const auto done = [=](const MTPmessages_Messages &result) {
+			const auto strong = weak.get();
+			if (!strong) {
+				return;
+			}
+			strong->data().processExistingMessages(
+				isChannel
+					? strong->data().channelLoaded(peerToChannel(itemId.peer))
+					: nullptr,
+				result);
+			const auto found = strong->data().message(itemId);
+			const auto media = found ? found->media() : nullptr;
+			const auto document = media ? media->document() : nullptr;
+			if (!document || document->id != paused.documentId) {
+				DEBUG_LOG(("[DL] resume: msg %1 fetched without document"
+					).arg(paused.itemIdMsg));
+				return;
+			}
+			resumePaused(paused, found, document);
+		};
+		const auto fail = [=](const MTP::Error &error) {
+			DEBUG_LOG(("[DL] resume: getMessages failed: %1"
+				).arg(error.type()));
+		};
+		if (isChannel) {
+			session->api().request(MTPchannels_GetMessages(
+				MTP_inputChannel(
+					MTP_long(peerToChannel(itemId.peer).bare),
+					MTP_long(paused.peerAccessHash)),
+				MTP_vector<MTPInputMessage>(ids)
+			)).done(done).fail(fail).send();
+		} else {
+			session->api().request(MTPmessages_GetMessages(
+				MTP_vector<MTPInputMessage>(ids)
+			)).done(done).fail(fail).send();
+		}
+	}
 }
 
 void DownloadManager::cancelPaused(

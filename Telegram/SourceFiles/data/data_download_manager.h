@@ -261,6 +261,11 @@ private:
 	void deserializeInflight(const QByteArray &data);
 	void writeInflightPostponed();
 	void validatePausedDownloads();
+	[[nodiscard]] bool resumePaused(
+		const PausedDownloadDescriptor &paused,
+		HistoryItem *item,
+		DocumentData *document);
+	void requestPausedResume(const PausedDownloadDescriptor &paused);
 
 	base::flat_map<not_null<Main::Session*>, SessionData> _sessions;
 	base::flat_set<not_null<const HistoryItem*>> _loading;

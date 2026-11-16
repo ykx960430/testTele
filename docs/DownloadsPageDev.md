@@ -1326,8 +1326,8 @@ download_progress : ... {}
 
 | 文件 | 变更类型 |
 |------|---------|
-| `Telegram/SourceFiles/data/data_download_manager.h` | 新增 PausedDownloadDescriptor / PauseReason；新增 pauseAll/pauseOne/resumeOne/cancelPaused/loadingStopSilent/loadingCount/pausedCount/pausedList/pausedListChanges 接口 |
-| `Telegram/SourceFiles/data/data_download_manager.cpp` | 完整实现上述接口 + serializePaused/deserializePaused + validatePausedDownloads |
+| `Telegram/SourceFiles/data/data_download_manager.h` | 新增 PausedDownloadDescriptor / PauseReason；新增 pauseAll/pauseOne/resumeOne/cancelPaused/loadingStopSilent/loadingCount/pausedCount/pausedList/pausedListChanges 接口；private: resumePaused / requestPausedResume |
+| `Telegram/SourceFiles/data/data_download_manager.cpp` | 完整实现上述接口 + serializePaused/deserializePaused + validatePausedDownloads；消息不在内存时按 id 补拉（`messages.GetMessages` / `channels.GetMessages`） |
 | `Telegram/SourceFiles/data/data_document.h` | 新增 pauseLoad/resumeLoad/paused；DownloadPaused 标志 |
 | `Telegram/SourceFiles/data/data_document.cpp` | 完整实现上述接口 |
 | `Telegram/SourceFiles/storage/file_download.h` | 新增 pause/resume/setStartOffset；构造函数加 startOffset 参数 |
@@ -1466,12 +1466,16 @@ download_progress : ... {}
 }
 ```
 
-**已知限制**：`resumeOne()` 需要源消息在内存里（按 `FullMsgId` 在 `_sessions` 里查 `DocumentData`）才能
-重新组包下载（dc / accessHash / size 都来自消息），所以退出后立刻「继续」可能失败——失败时弹
-`lng_downloads_resume_failed` 提示，不回滚暂停记录。另外，如果文档已经下载完成或正在下载（暂停记录已过期），
-`resumeOne()` 会直接把该记录从列表里移除，不再尝试续传。列表本身（行、角标、导出内容）不依赖消息，始终可用。
+**源消息不在内存时按 id 补拉**：`resumeOne()` 先按 `FullMsgId` 在 `_sessions` 里找消息；找不到时
+（典型场景：重启后那个会话还没加载，`Session::message()` 只查内存 `_messages`，没有数据库回退）
+不再直接失败，而是 `requestPausedResume()` 用 `messages.GetMessages` / `channels.GetMessages`
+（`inputMessageID`）把这条消息拉回来，`processExistingMessages()` 入内存后再走同一条
+`resumePaused()`。dc / accessHash / size / fileReference 都来自这条新消息，所以顺带避开了
+旧 fileReference 过期的问题。拉取失败、或消息里没有匹配的 document 时保留暂停记录（可再点一次重试），
+并写 `DEBUG_LOG`（前缀 `[DL]`）。如果文档已经下载完成或正在下载（暂停记录已过期），
+`resumePaused()` 会直接把该记录从列表里移除，不再尝试续传。列表本身（行、角标、导出内容）不依赖消息，始终可用。
 
-**续传失败时的 `ready` 同步**：若 `.temp` 不存在或比记录的 `ready` 短，`resumeOne()` 会拒绝续传并把
+**续传失败时的 `ready` 同步**：若 `.temp` 不存在或比记录的 `ready` 短，`resumePaused()` 会拒绝续传并把
 `ready` 夹到 `.temp` 的实际大小（同时 `_pausedListChanges.fire({})` + `writePostponed(nullptr)`），
 界面上的进度条会立刻反映磁盘真实情况，不会一直显示过期进度。
 
