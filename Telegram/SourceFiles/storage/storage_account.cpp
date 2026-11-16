@@ -978,7 +978,7 @@ void Account::writeLocationsDelayed() {
 void Account::readLocations() {
 	FileReadDescriptor locations;
 	if (!ReadEncryptedFile(locations, _locationsKey, _basePath, _localKey)) {
-		DEBUG_LOG("[DL] locations file missing or unreadable");
+		DEBUG_LOG(("[DL] locations file missing or unreadable"));
 		ClearKey(_locationsKey, _basePath);
 		_locationsKey = 0;
 		writeMapDelayed();
