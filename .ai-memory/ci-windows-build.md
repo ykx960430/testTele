@@ -167,3 +167,27 @@ prepare 全跳过 → Configure ~1 min → Build ~1h27m（`--parallel 2`，2623 
 **教训**：`downloadManager()` 的调用点散在多个 widget / controller 里，
 推 CI 前必须 `grep -o "downloadManager()\.[A-Za-z_]*"` 与头文件 public 成员逐一对账；
 只审计「本次改动的文件」会漏（82b0693 改的就是这个文件，但上一轮清单里没有它）。
+
+## 2026-11 第四次 CI 编译失败
+
+`storage/storage_account.cpp(981)`：
+
+```
+error C2275: 'QString': expected an expression instead of a type
+error C2143: syntax error: missing ')' before 'string'
+error C2059: syntax error: ')'
+```
+
+`DEBUG_LOG("[DL] ...")` 写成了单括号。`lib_base/base/debug_log.h:33` 的宏是
+
+```cpp
+#define DEBUG_LOG(message) { ... LogWriteDebug(QString message, ...); }
+```
+
+也就是参数必须是**能接在 `QString` 后面的括号表达式**，所以正确写法是
+`DEBUG_LOG(("text %1").arg(x))`（`LOG` / `PROFILE_LOG` 同理）。
+单括号展开成 `QString "[DL] ..."` —— 类型后面跟字符串字面量，编译器就报 C2275。
+
+**教训**：所有 `[DL]` 埋点都是新写的代码，推之前用
+`grep -rn "DEBUG_LOG([^(]" --include=*.cpp SourceFiles` 扫一遍单括号写法；
+多行写法 `DEBUG_LOG(\n\t\t("...")` 是合法的，扫出来要人工看一眼下一行。

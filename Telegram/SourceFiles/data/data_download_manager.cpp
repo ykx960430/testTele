@@ -1067,10 +1067,9 @@ bool DownloadManager::resumePaused(
 		flushPaused();
 		return true;
 	}
-	// Resuming needs the temp file as the already downloaded prefix, at least
-	// as large as the recorded ready offset. Otherwise the loader would be
-	// asked for offsets past the end of a freshly created empty file, which
-	// would leave a zero-filled gap in it.
+	// WHY: resuming needs the temp file as the already downloaded prefix, at
+	// least as large as the recorded ready offset, or the loader is asked for
+	// offsets past the end of a fresh empty file and leaves a zero gap in it.
 	const auto partial = QFileInfo(paused.path + u".temp"_q);
 	const auto partialSize = partial.exists() ? partial.size() : 0;
 	if (paused.ready > 0 && partialSize < paused.ready) {
@@ -1094,8 +1093,8 @@ bool DownloadManager::resumePaused(
 		PeerId(paused.itemIdPeer),
 		MsgId(paused.itemIdMsg))), paused.path);
 	if (!document->loading()) {
-		// The download did not actually start (for example the temp file was
-		// too short to resume from), so keep the paused record instead of
+		// WHY: the download did not start (for example the temp file was too
+		// short to resume from), so keep the paused record instead of
 		// dropping it silently.
 		DEBUG_LOG(("[DL] resume: %1 did not start, ready %2"
 			).arg(paused.path
@@ -1842,10 +1841,9 @@ void DownloadManager::validatePausedDownloads() {
 		const auto partialSize = hasTemp ? partial.size() : int64(0);
 		const auto readyBefore = d.ready;
 		if (!hasTemp) {
-			// Resuming needs the temp file as the already downloaded prefix.
-			// Without it the parts would be requested at their original
-			// offsets past the end of a freshly created empty file, which
-			// would leave a zero-filled gap in it.
+			// WHY: without the temp file the parts would be requested at their
+			// original offsets past the end of a fresh empty file, leaving it
+			// zero-filled up to the recorded offset.
 			d.ready = 0;
 		} else if (const auto actual = partial.size(); actual < d.ready) {
 			d.ready = actual;
