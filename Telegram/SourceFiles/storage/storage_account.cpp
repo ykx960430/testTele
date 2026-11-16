@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/storage_account.h"
 
+#include "base/debug_log.h"
 #include "storage/localstorage.h"
 #include "storage/storage_domain.h"
 #include "storage/storage_encryption.h"
@@ -908,6 +909,7 @@ void Account::writeLocations() {
 
 		size += sizeof(quint32); // legacy webLocationsCount
 		size += Serialize::bytearraySize(_downloadsSerialized);
+		size += Serialize::bytearraySize(_pausedDownloadsSerialized);
 		size += Serialize::bytearraySize(_inflightDownloadsSerialized);
 
 		EncryptedDescriptor data(size);
@@ -945,6 +947,10 @@ void Account::writeLocations() {
 
 		FileWriteDescriptor file(_locationsKey, _basePath);
 		file.writeEncrypted(data, _localKey);
+		DEBUG_LOG(("[DL] locations written: downloads %1, paused %2, inflight %3"
+			).arg(_downloadsSerialized.size()
+			).arg(_pausedDownloadsSerialized.size()
+			).arg(_inflightDownloadsSerialized.size()));
 	}
 }
 
@@ -972,6 +978,7 @@ void Account::writeLocationsDelayed() {
 void Account::readLocations() {
 	FileReadDescriptor locations;
 	if (!ReadEncryptedFile(locations, _locationsKey, _basePath, _localKey)) {
+		DEBUG_LOG("[DL] locations file missing or unreadable");
 		ClearKey(_locationsKey, _basePath);
 		_locationsKey = 0;
 		writeMapDelayed();
@@ -1037,6 +1044,10 @@ void Account::readLocations() {
 			}
 		}
 	}
+	DEBUG_LOG(("[DL] locations read: downloads %1, paused %2, inflight %3"
+		).arg(_downloadsSerialized.size()
+		).arg(_pausedDownloadsSerialized.size()
+		).arg(_inflightDownloadsSerialized.size()));
 }
 
 void Account::updateDownloads(

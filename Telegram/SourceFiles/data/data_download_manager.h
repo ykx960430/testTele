@@ -276,6 +276,7 @@ private:
 	base::flat_set<not_null<DocumentData*>> _generatedDocuments;
 
 	std::vector<PausedDownloadDescriptor> _paused;
+	bool _inflightRestored = false;
 
 	TimeId _lastStartedBase = 0;
 	int _lastStartedAdded = 0;

@@ -293,7 +293,8 @@ void DownloadManager::trackSession(not_null<Main::Session*> session) {
 	// WHY: a crash skips the pause-on-quit chain, so the still running
 	// downloads are only recoverable from their own snapshot. The snapshot is
 	// one global list, so restore it once instead of duplicating per account.
-	if (_sessions.size() == 1) {
+	if (!_inflightRestored) {
+		_inflightRestored = true;
 		deserializeInflight(
 			session->account().local().inflightDownloadsSerialized());
 	}
@@ -1751,6 +1752,8 @@ QByteArray DownloadManager::serializeInflight() const {
 				PauseReason::Auto));
 		}
 	}
+	DEBUG_LOG(("[DL] inflight snapshot: %1 downloading entries"
+		).arg(list.size()));
 	return SerializePausedDownloads(list);
 }
 
@@ -1809,6 +1812,8 @@ void DownloadManager::deserializeInflight(const QByteArray &serialized) {
 	}
 	// WHY: an in-flight download could not be paused before the crash, so it
 	// is restored in the paused list, where the user can resume it.
+	DEBUG_LOG(("[DL] inflight restore: %1 entries"
+		).arg(list.size()));
 	for (auto &d : list) {
 		_paused.push_back(std::move(d));
 	}
