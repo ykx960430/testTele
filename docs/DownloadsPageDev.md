@@ -1268,11 +1268,26 @@ download_progress : ... {}
 现阶段的折中是：文案仍然先取 `tr::lng_*(tr::now)`（保留未来接语言包的可能），
 再由 `Tr(en, zh)` 在中文界面上覆盖成中文。代价是新增文案需要在两个地方各写一次。
 
+#### 第二轮真机 UI 反馈（①~⑤，2026-11-16）
+
+| # | 反馈 | 处理 |
+|---|------|------|
+| ① | 导出下载列表时把「已下载」一起导出 | `exportPausedJson()` 追加只读 `completed` 数组（documentId/photoId/peer/msg/size/started/path/displayName/sourceTitle）。**只能记录、不能导入**：恢复一条已完成记录需要源消息在内存里，JSON 给不了；`importPausedJson()` 仍只认 `version == 1` 与 `items`，未知 key 直接忽略 |
+| ② | 顶栏两个按钮重叠且溢出到弹窗右侧（只看得到一个「全」字） | 根因：`ActionBar::updateRects()` 把 `right`（右边缘 X）当成**左边缘**用，且从不减去按钮宽度，两个按钮一路画到控件右边界之外。改为从 `downloadsBigBarPadding.left()` 开始从左往右排 |
+| ③ | 两行文件名与「来自 X · 大小」重叠 | **未锁定根因**。测量与绘制是同一条路径（`countHeight(w, true)` ↔ `DrawTitle()` 的 `SimpleGeometry(w, 0, 0, false)` + `breakEverywhere = true`；Renderer 两者都取 `_geometry.breakEverywhere`），静态比对找不到差异。本轮只做加固：状态行改成独立矩形 `row.statusRect`（原来是在 `row.text` 的高度上做减法），间距 2px → 4px。下一轮若仍重叠，需要截图 |
+| ④ | 顶部「共 xxx MB」与单项大小要能显示 GB | `Ui::FormatSizeText` 最大只到 MB（`ui/text/format_values.cpp`），所以新增本地 `SizeText()`：≥1 GiB 时输出一位小数的 GB，否则回落到 `FormatSizeText`。进度、已完成状态行、统计卡片三处统一走它（没有改上游公共函数） |
+| ⑤a | 下载中/暂停的小图标与封面互斥 | 改为**叠加**：`relayout()` 算出封面上的 `row.badge` 矩形（22px 圆角底色 + 居中图标），`paintItem()` 在封面之后绘制 |
+| ⑤b | 点「下载中」行应该跳转会话，而不是触发继续 | `Row::clickable()` 现在对 Downloading/Paused/Completed 一律为真；`activateRow()` 先判右侧动作矩形（命中才暂停/继续/显示文件夹），否则整行 `jumpToRow()`。暂停行因此需要真实 msg，`buildRows()` 补上 `row.itemId` |
+| ⑤c | 「已下载」行右侧加文件夹图标，点击在资源管理器中显示 | 复用已完成行已有的 `row.path`（保存路径）：`relayout()` 给它也预留动作位（`row.folder`），点击走 `File::ShowInFolder(row.path)`，图标 `st::menuIconShowInFolder` |
+
+⑥（会话里已下载/另存为过的视频，界面下载图标要显示成已下载）**用户已确认现有行为符合需求，不做**。
+
 #### 仍待处理
 
 | # | 项 | 为什么没做 |
 |---|----|-----------|
 | U4a | 已完成项的「来源会话」需要真实可点的链接样式 | 目前是整行点击跳转，没有单独画出「来自 X」的链接外观；已满足「点击跳转到对应消息」的功能需求 |
+| U4b | 两行文件名与状态行重叠（③） | 静态比对没能锁定根因，已做加固；若复现需要截图或真机上打印测量值 |
 | T2C.5 | 右键菜单（暂停/恢复/取消/在文件夹打开） | 未开始 |
 
 > 暂停任务的数据模型说明：`pauseOne()` 会把条目从内存中的 `data.downloading` 容器**移到** `_paused`

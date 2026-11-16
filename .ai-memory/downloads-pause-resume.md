@@ -192,9 +192,16 @@ UI 显示的是另一条的 `ready` → 出现「显示 20.5MB，点继续却从
 
 ### 待办
 
-- 下一轮 CI 需要带上 `23b774b` 的 `[DL]` 埋点，并在
-  `validatePausedDownloads()` / `resumePaused()` 里补 `path + ready + total` 日志，
-  才能把上面 3 处清零路径逐一定论。
-- 另有一处**未解开的异常**：该轮 mtp 日志显示请求量到 175MB（offset 递增到
+- 埋点已加（commit `8d722e4`，tag `v0.1.8-downloads-ui-resume-logs`）：
+  - `validatePausedDownloads`：`[DL] validate: <path> ready <before> -> <after>, total <t>, temp <bytes>`
+  - `resumePaused`：`[DL] resume: start <path> ready <r> total <t>`、
+    `[DL] resume: clamp <path> ready <r> -> <partialSize>, total <t>`、
+    `[DL] resume: <path> did not start, ready <r>`
+  判读：`validate` 里 `ready` 被改成 0 ⇒ 第 1 条（`.temp` 不存在或更短）；
+  `clamp` 出现 ⇒ 第 2 条；两者都没有但 `resume: start ... ready 0` ⇒ `ready` 本来就是 0，
+  要往 `deserializePaused` / `pauseOne` / 重复记录方向查。
+- 另一处**未解开的异常**：该轮 mtp 日志显示请求量到 175MB（offset 递增到
   175898624），但磁盘上 `.temp` 只有 524288 字节（mtime 13:54:01），
   也没有最终的 `.mp4`。即「请求了但没写进这个文件」，需要下一轮一起查。
+  注意 `.temp` 写在 `Core::Settings::_downloadPath`（用户实际是 `F:\X 下载\G GV\`），
+  别去系统下载目录找。
