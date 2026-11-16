@@ -156,13 +156,16 @@ void Player::trackReceivedTill(
 		crl::time position) {
 	if (position == kTimeUnknown) {
 		return;
-	} else if (state.duration != kTimeUnknown) {
-		if (state.receivedTill < position) {
-			state.receivedTill = position;
-			trackSendReceivedTill(track, state);
-		}
-	} else {
+	}
+	const auto guard = base::make_weak(&_sessionGuard);
+	if (state.duration == kTimeUnknown) {
 		state.receivedTill = position;
+	} else if (state.receivedTill < position) {
+		state.receivedTill = position;
+		trackSendReceivedTill(track, state);
+		if (!guard) {
+			return;
+		}
 	}
 	if (!_pauseReading
 		&& bothReceivedEnough(loadInAdvanceFor())
@@ -178,12 +181,18 @@ void Player::trackPlayedTill(
 		crl::time position) {
 	const auto guard = base::make_weak(&_sessionGuard);
 	trackReceivedTill(track, state, position);
-	if (guard && position != kTimeUnknown) {
+	if (!guard) {
+		return;
+	}
+	if (position != kTimeUnknown) {
 		state.position = position;
 		const auto value = _options.loop
 			? (position % computeTotalDuration())
 			: position;
 		_updates.fire({ PlaybackUpdate<Track>{ value } });
+		if (!guard) {
+			return;
+		}
 	}
 	if (_pauseReading
 		&& (!bothReceivedEnough(loadInAdvanceFor()) || receivedTillEnd())) {
@@ -214,8 +223,11 @@ void Player::trackSendReceivedTill(
 void Player::audioReceivedTill(crl::time position) {
 	Expects(_audio != nullptr);
 
+	const auto guard = base::make_weak(&_sessionGuard);
 	trackReceivedTill(*_audio, _information.audio.state, position);
-	checkResumeFromWaitingForData();
+	if (guard) {
+		checkResumeFromWaitingForData();
+	}
 }
 
 void Player::audioPlayedTill(crl::time position) {
@@ -227,8 +239,11 @@ void Player::audioPlayedTill(crl::time position) {
 void Player::videoReceivedTill(crl::time position) {
 	Expects(_video != nullptr);
 
+	const auto guard = base::make_weak(&_sessionGuard);
 	trackReceivedTill(*_video, _information.video.state, position);
-	checkResumeFromWaitingForData();
+	if (guard) {
+		checkResumeFromWaitingForData();
+	}
 }
 
 void Player::videoPlayedTill(crl::time position) {
@@ -706,7 +721,11 @@ bool Player::receivedTillEnd() const {
 void Player::checkResumeFromWaitingForData() {
 	if (_pausedByWaitingForData && bothReceivedEnough(kBufferFor)) {
 		_pausedByWaitingForData = false;
+		const auto guard = base::make_weak(&_sessionGuard);
 		updatePausedState();
+		if (!guard) {
+			return;
+		}
 		_updates.fire({ WaitingForData{ false } });
 	}
 }
