@@ -30,7 +30,7 @@ downloadsBigNameFont: font(14px semibold);
 downloadsBigNameFg: windowFg;
 downloadsBigStatusFont: font(12px);
 downloadsBigStatusFg: windowSubTextFg;
-downloadsBigStatusTop: 2px;
+downloadsBigStatusTop: 4px;
 
 downloadsBigActionSize: 32px;
 downloadsBigActionSkip: 8px;
@@ -38,6 +38,10 @@ downloadsBigActionRadius: 8px;
 downloadsBigActionBgOver: windowBgOver;
 downloadsBigActionPause: icon {{ "history_file_pause", windowSubTextFg }};
 downloadsBigActionResume: icon {{ "history_file_play", windowSubTextFg }};
+
+downloadsBigThumbBadgeSize: 22px;
+downloadsBigThumbBadgeRadius: 11px;
+downloadsBigThumbBadgeBg: windowBg;
 
 downloadsBigToggleSize: 12px;
 downloadsBigToggle: icon {{ "history_down_arrow", windowSubTextFg }};

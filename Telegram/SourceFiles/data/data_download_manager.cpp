@@ -1074,12 +1074,21 @@ bool DownloadManager::resumePaused(
 	const auto partial = QFileInfo(paused.path + u".temp"_q);
 	const auto partialSize = partial.exists() ? partial.size() : 0;
 	if (paused.ready > 0 && partialSize < paused.ready) {
+		DEBUG_LOG(("[DL] resume: clamp %1 ready %2 -> %3, total %4"
+			).arg(paused.path
+			).arg(paused.ready
+			).arg(partialSize
+			).arg(paused.total));
 		// WHY: keep the shown progress in sync with what is actually on disk.
 		i->ready = partialSize;
 		_pausedListChanges.fire({});
 		flushPaused();
 		return false;
 	}
+	DEBUG_LOG(("[DL] resume: start %1 ready %2 total %3"
+		).arg(paused.path
+		).arg(paused.ready
+		).arg(paused.total));
 	document->resumeLoad(paused.ready);
 	document->save(Data::FileOrigin(FullMsgId(
 		PeerId(paused.itemIdPeer),
@@ -1088,6 +1097,9 @@ bool DownloadManager::resumePaused(
 		// The download did not actually start (for example the temp file was
 		// too short to resume from), so keep the paused record instead of
 		// dropping it silently.
+		DEBUG_LOG(("[DL] resume: %1 did not start, ready %2"
+			).arg(paused.path
+			).arg(paused.ready));
 		return false;
 	}
 	_paused.erase(i);
@@ -1826,7 +1838,10 @@ void DownloadManager::validatePausedDownloads() {
 		}
 		const auto partial = QFileInfo(d.path + u".temp"_q);
 		const auto complete = QFileInfo(d.path);
-		if (!partial.exists()) {
+		const auto hasTemp = partial.exists();
+		const auto partialSize = hasTemp ? partial.size() : int64(0);
+		const auto readyBefore = d.ready;
+		if (!hasTemp) {
 			// Resuming needs the temp file as the already downloaded prefix.
 			// Without it the parts would be requested at their original
 			// offsets past the end of a freshly created empty file, which
@@ -1835,6 +1850,12 @@ void DownloadManager::validatePausedDownloads() {
 		} else if (const auto actual = partial.size(); actual < d.ready) {
 			d.ready = actual;
 		}
+		DEBUG_LOG(("[DL] validate: %1 ready %2 -> %3, total %4, temp %5"
+			).arg(d.path
+			).arg(readyBefore
+			).arg(d.ready
+			).arg(d.total
+			).arg(partialSize));
 		if (d.displayName.isEmpty()) {
 			d.displayName = complete.fileName();
 		}
@@ -1915,7 +1936,36 @@ QString DownloadManager::exportPausedJson() const {
 				peer->name());
 		}
 	}
-	if (items.isEmpty()) {
+	// WHY: a backup listing only unfinished tasks says nothing about what is
+	// already on disk; completed entries are record-only, restoring needs the
+	// source message in memory, which JSON cannot carry.
+	auto completed = QJsonArray();
+	for (const auto &[session, data] : _sessions) {
+		for (const auto &id : data.downloaded) {
+			if (!id.object || id.path.isEmpty()) {
+				continue;
+			}
+			const auto &object = *id.object;
+			const auto peer = object.item->history()->peer;
+			const auto saveAs = QFileInfo(id.path).fileName();
+			auto entry = QJsonObject();
+			entry.insert(u"documentId"_q, QString::number(
+				id.download.type == DownloadType::Document
+					? id.download.objectId : 0));
+			entry.insert(u"photoId"_q, QString::number(
+				id.download.type == DownloadType::Photo
+					? id.download.objectId : 0));
+			entry.insert(u"itemIdPeer"_q, QString::number(id.itemId.peer.value));
+			entry.insert(u"itemIdMsg"_q, QString::number(id.itemId.msg.bare));
+			entry.insert(u"size"_q, QString::number(id.size));
+			entry.insert(u"started"_q, QString::number(id.started));
+			entry.insert(u"path"_q, id.path);
+			entry.insert(u"displayName"_q, saveAs);
+			entry.insert(u"sourceTitle"_q, peer->name());
+			completed.append(entry);
+		}
+	}
+	if (items.isEmpty() && completed.isEmpty()) {
 		return QString();
 	}
 	auto root = QJsonObject();
@@ -1924,6 +1974,7 @@ QString DownloadManager::exportPausedJson() const {
 	root.insert(u"version"_q, 1);
 	root.insert(u"exportedAt"_q, double(base::unixtime::now()));
 	root.insert(u"items"_q, items);
+	root.insert(u"completed"_q, completed);
 	return QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Indented));
 }
 

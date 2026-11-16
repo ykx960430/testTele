@@ -92,16 +92,17 @@ struct Row {
 	HistoryItem *item = nullptr;
 	QRect geometry;
 	QRect text;
+	QRect statusRect;
 	QRect action;
+	QRect badge;
+	QRect folder;
 	bool collapsible = false;
 	bool collapsed = false;
 
 	[[nodiscard]] bool clickable() const {
-		// Photos are only tracked, their download is neither paused nor
-		// resumable, so a paused photo row must not look clickable.
 		return (kind == Kind::Completed)
-			|| (kind == Kind::Paused
-				&& paused.downloadType == Data::DownloadType::Document);
+			|| (kind == Kind::Downloading)
+			|| (kind == Kind::Paused);
 	}
 	[[nodiscard]] bool hoverable() const {
 		return clickable() || collapsible || !action.isEmpty();
@@ -132,12 +133,24 @@ struct Row {
 		: Tr(u"from "_q, u"来自 "_q) + title;
 }
 
+// WHY: Ui::FormatSizeText stops at MB, so a multi-GB total is unreadable.
+[[nodiscard]] QString SizeText(int64 size) {
+	if (size >= 1024 * 1024 * 1024) {
+		const auto sizeTenthGb = (size * 10) / (1024 * 1024 * 1024);
+		return QString::number(sizeTenthGb / 10)
+			+ '.'
+			+ QString::number(sizeTenthGb % 10)
+			+ u" GB"_q;
+	}
+	return Ui::FormatSizeText(size);
+}
+
 [[nodiscard]] QString ProgressText(int64 ready, int64 total) {
-	const auto readyText = Ui::FormatSizeText(ready);
+	const auto readyText = SizeText(ready);
 	if (total <= 0) {
 		return readyText;
 	}
-	const auto totalText = Ui::FormatSizeText(total);
+	const auto totalText = SizeText(total);
 	return Tr(
 		tr::lng_downloads_big_progress(
 			tr::now,
@@ -326,17 +339,17 @@ void ActionBar::updateRects() {
 	const auto &padding = st::downloadsBigBarButtonPadding;
 	const auto buttonHeight = font->height + padding.top() + padding.bottom();
 	const auto top = (height() - buttonHeight) / 2;
-	auto right = width() - st::downloadsBigBarPadding.right();
+	auto left = st::downloadsBigBarPadding.left();
 	const auto place = [&](const QString &text) {
 		const auto buttonWidth = font->width(text)
 			+ padding.left()
 			+ padding.right();
-		auto result = QRect(right, top, buttonWidth, buttonHeight);
-		right = result.left() - st::downloadsBigBarButtonSkip;
+		auto result = QRect(left, top, buttonWidth, buttonHeight);
+		left = result.right() + st::downloadsBigBarButtonSkip;
 		return result;
 	};
-	_resumeRect = place(_resumeText);
 	_pauseRect = place(_pauseText);
+	_resumeRect = place(_resumeText);
 }
 
 ActionBar::Action ActionBar::actionAt(QPoint position) const {
@@ -465,6 +478,7 @@ private:
 	void activateRow(int index);
 	void resumeRow(const Row &row);
 	void jumpToRow(const Row &row);
+	void showInFolder(const Row &row) const;
 	[[nodiscard]] QRect toggleRect(const Row &row) const;
 	void paintSmall(Painter &p, const Row &row) const;
 	void paintItem(Painter &p, const Row &row, bool hovered) const;
@@ -590,6 +604,9 @@ void InnerWidget::buildRows() {
 			row.title = Tr(tr::lng_downloads_big_paused(tr::now), u"已暂停"_q);
 		}
 		row.titleText.setText(_nameStyle, row.title);
+		row.itemId = FullMsgId(
+			PeerId(descriptor->itemIdPeer),
+			MsgId(descriptor->itemIdMsg));
 		row.status = JoinStatus(
 			Tr(tr::lng_downloads_big_paused(tr::now), u"已暂停"_q),
 			JoinStatus(
@@ -615,7 +632,7 @@ void InnerWidget::buildRows() {
 			row.thumb = ThumbnailFor(*id->object, _thumbs);
 		}
 		row.status = JoinStatus(
-			Ui::FormatSizeText(id->size),
+			SizeText(id->size),
 			SourceText(PeerTitleOf(*id)));
 		totalSize += id->size;
 		completed.push_back(std::move(row));
@@ -625,7 +642,7 @@ void InnerWidget::buildRows() {
 	});
 
 	if (!completed.empty()) {
-		const auto sizeText = Ui::FormatSizeText(totalSize);
+		const auto sizeText = SizeText(totalSize);
 		auto stats = Row();
 		stats.kind = Row::Kind::Stats;
 		stats.title = Tr(
@@ -730,10 +747,11 @@ int InnerWidget::relayout(int newWidth) {
 		}
 		const auto hasAction = (row.kind == Row::Kind::Downloading)
 			|| (row.kind == Row::Kind::Paused);
+		const auto hasFolder = (row.kind == Row::Kind::Completed);
 		const auto textLeft = padding.left()
 			+ thumbSize
 			+ st::downloadsBigThumbSkip;
-		const auto actionWidth = hasAction
+		const auto actionWidth = (hasAction || hasFolder)
 			? (st::downloadsBigActionSize + st::downloadsBigActionSkip)
 			: 0;
 		const auto textWidth = std::max(
@@ -751,13 +769,32 @@ int InnerWidget::relayout(int newWidth) {
 			textLeft,
 			top + padding.top() + (innerHeight - contentHeight) / 2,
 			textWidth,
-			contentHeight);
-		row.action = hasAction
+			row.titleHeight);
+		row.statusRect = QRect(
+			textLeft,
+			row.text.y() + row.titleHeight + st::downloadsBigStatusTop,
+			textWidth,
+			statusHeight);
+		const auto actionTop = top
+			+ (rowHeight - st::downloadsBigActionSize) / 2;
+		const auto actionLeft = newWidth
+			- padding.right()
+			- st::downloadsBigActionSize;
+		const auto actionGeometry = QRect(
+			actionLeft,
+			actionTop,
+			st::downloadsBigActionSize,
+			st::downloadsBigActionSize);
+		row.action = hasAction ? actionGeometry : QRect();
+		row.folder = hasFolder ? actionGeometry : QRect();
+		const auto badgeSize = st::downloadsBigThumbBadgeSize;
+		const auto thumbTop = top + (rowHeight - thumbSize) / 2;
+		row.badge = hasAction
 			? QRect(
-				newWidth - padding.right() - st::downloadsBigActionSize,
-				top + (rowHeight - st::downloadsBigActionSize) / 2,
-				st::downloadsBigActionSize,
-				st::downloadsBigActionSize)
+				padding.left() + (thumbSize - badgeSize) / 2,
+				thumbTop + (thumbSize - badgeSize) / 2,
+				badgeSize,
+				badgeSize)
 			: QRect();
 		top += rowHeight;
 	}
@@ -798,15 +835,14 @@ void InnerWidget::activateRow(int index) {
 		}
 		return;
 	}
+	if (!row.folder.isEmpty() && row.folder.contains(_lastClick)) {
+		showInFolder(row);
+		return;
+	}
 	if (!row.clickable()) {
 		return;
 	}
-	if (row.kind == Row::Kind::Paused) {
-		resumeRow(row);
-	} else if (row.kind == Row::Kind::Completed
-		|| row.kind == Row::Kind::Downloading) {
-		jumpToRow(row);
-	}
+	jumpToRow(row);
 }
 
 void InnerWidget::resumeRow(const Row &row) {
@@ -825,6 +861,13 @@ void InnerWidget::jumpToRow(const Row &row) {
 		row.itemId.peer,
 		Window::SectionShow(Window::SectionShow::Way::Forward),
 		row.itemId.msg);
+}
+
+void InnerWidget::showInFolder(const Row &row) const {
+	if (row.path.isEmpty()) {
+		return;
+	}
+	File::ShowInFolder(row.path);
 }
 
 QRect InnerWidget::toggleRect(const Row &row) const {
@@ -949,26 +992,32 @@ void InnerWidget::paintItem(Painter &p, const Row &row, bool hovered) const {
 	} else {
 		p.drawImage(thumbRect, row.thumb);
 	}
+	if (!row.badge.isEmpty()) {
+		auto hq = PainterHighQualityEnabler(p);
+		p.setPen(Qt::NoPen);
+		p.setBrush(st::downloadsBigThumbBadgeBg);
+		p.drawRoundedRect(
+			row.badge,
+			st::downloadsBigThumbBadgeRadius,
+			st::downloadsBigThumbBadgeRadius);
+		const auto &icon = (row.kind == Row::Kind::Downloading)
+			? st::downloadsBigActionPause
+			: st::downloadsBigActionResume;
+		icon.paintInCenter(p, row.badge);
+	}
 
 	p.setPen(st::downloadsBigNameFg);
-	DrawTitle(p, row.titleText, QRect(
-		row.text.x(),
-		row.text.y(),
-		row.text.width(),
-		row.titleHeight));
+	DrawTitle(p, row.titleText, row.text);
 
-	const auto statusTop = row.text.y()
-		+ row.titleHeight
-		+ st::downloadsBigStatusTop;
 	p.setFont(st::downloadsBigStatusFont);
 	p.setPen(st::downloadsBigStatusFg);
 	p.drawText(
-		QRect(row.text.x(), statusTop, row.text.width(), row.text.height()
-			- row.titleHeight - st::downloadsBigStatusTop),
+		row.statusRect,
 		Qt::AlignLeft | Qt::AlignVCenter,
 		st::downloadsBigStatusFont->elided(row.status, row.text.width()));
 
-	if (row.action.isEmpty()) {
+	const auto &action = row.action.isEmpty() ? row.folder : row.action;
+	if (action.isEmpty()) {
 		return;
 	}
 	if (hovered) {
@@ -976,14 +1025,18 @@ void InnerWidget::paintItem(Painter &p, const Row &row, bool hovered) const {
 		p.setPen(Qt::NoPen);
 		p.setBrush(st::downloadsBigActionBgOver);
 		p.drawRoundedRect(
-			row.action,
+			action,
 			st::downloadsBigActionRadius,
 			st::downloadsBigActionRadius);
 	}
-	const auto &icon = (row.kind == Row::Kind::Downloading)
-		? st::downloadsBigActionPause
-		: st::downloadsBigActionResume;
-	icon.paintInCenter(p, row.action);
+	if (!row.action.isEmpty()) {
+		const auto &icon = (row.kind == Row::Kind::Downloading)
+			? st::downloadsBigActionPause
+			: st::downloadsBigActionResume;
+		icon.paintInCenter(p, action);
+	} else {
+		st::menuIconShowInFolder.paintInCenter(p, action);
+	}
 }
 
 void InnerWidget::mouseMoveEvent(QMouseEvent *e) {
