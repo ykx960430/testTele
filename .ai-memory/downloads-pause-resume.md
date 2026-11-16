@@ -149,3 +149,52 @@ BigPage 的「下载中」组 = `loadingList()` + `pausedList()`
 （`info_downloads_big_widget.cpp:638`），所以崩溃恢复出来的条目会显示在
 「下载中」组里、状态为「已暂停」，不会进到「已下载」。
 用户如果看到「已暂停」行，那是恢复成功，不是丢失。
+
+## 9. 「续传从 0 开始」的实测判据（2026-11-16，run 70 = `8bb646a`）
+
+### 最快判据：`mtp_*.txt` 里的 `upload_getFile` offset
+
+`resumePaused()` → `resumeLoad(paused.ready)` → `save()` → `mtpFileLoader(startOffset)`，
+所以**重启后第一条 `upload_getFile` 的 `offset` 就等于 `paused.ready`**。
+offset = 0 ⇒ 传给 loader 的 `ready` 就是 0，跟「有没有落盘」无关，
+问题在 `ready` 被清零。这比看 UI 进度可靠得多。
+
+实测（13:52:42 启动的那轮）：两次点「继续」之后，第一条请求 offset 都是 **0**
+（13:52:58.123、13:54:00.279），而两次点击都打了
+`[DL] resume: msg 17058 not in memory, requesting` → 走
+`channels.GetMessages` → `resumePaused()`，说明 `save()` 确实被调用了。
+
+### `ready` 被清零的三处（按可疑度）
+
+1. `validatePausedDownloads()`（`data_download_manager.cpp:1829`）：
+   `path + ".temp"` 不存在 → `d.ready = 0`。启动时就清零，UI 也会显示 0。
+2. `resumePaused()` 的 clamp（`:1076`）：`partialSize < paused.ready` →
+   `i->ready = partialSize` 并 `return false`（不续传）；再点一次就是 0。
+3. `FileLoader::cancel()` 会 `QFile::remove(_tempFilename)`
+   （`file_download.cpp:408`），而 `checkOpenForTemp()` 在
+   `.temp` 尺寸 < startOffset 时就是走 `cancel()` —— **临时文件被删**，
+   于是下一轮必然落到第 1 条。
+
+### 重复暂停记录是可疑放大器
+
+`deserializePaused()` 是**赋值** `_paused`，`deserializeInflight()` 是
+**追加**（`:1818`），两者没有去重；`pauseOne()` 也无去重。
+同一条消息存在两条记录时，`resumeOne()` 的 `find_if` 只取**第一条**
+（`SamePausedRecord` 只比 documentId + peer + msg），
+UI 显示的是另一条的 `ready` → 出现「显示 20.5MB，点继续却从 0 开始」。
+
+### 顺带查清的 `.temp` 位置
+
+`.temp` 跟最终文件同目录：`paused.path + ".temp"`，而 `paused.path` 来自
+`DocumentFileNameForSave` → `downloadPath()`（`Core::Settings::_downloadPath`）。
+用户实际的下载目录是 `F:\X 下载\G GV\`，不是系统 `Downloads`，
+所以在系统下载目录里找不到。**排查时先确认设置里的下载路径。**
+
+### 待办
+
+- 下一轮 CI 需要带上 `23b774b` 的 `[DL]` 埋点，并在
+  `validatePausedDownloads()` / `resumePaused()` 里补 `path + ready + total` 日志，
+  才能把上面 3 处清零路径逐一定论。
+- 另有一处**未解开的异常**：该轮 mtp 日志显示请求量到 175MB（offset 递增到
+  175898624），但磁盘上 `.temp` 只有 524288 字节（mtime 13:54:01），
+  也没有最终的 `.mp4`。即「请求了但没写进这个文件」，需要下一轮一起查。
