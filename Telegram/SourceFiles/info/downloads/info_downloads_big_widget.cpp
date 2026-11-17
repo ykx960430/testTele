@@ -37,12 +37,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/ui_utility.h"
 #include "ui/widgets/menu/menu_add_action_callback.h"
 #include "styles/style_basic.h"
+#include "styles/style_info.h"
 #include "styles/style_info_downloads_big.h"
 #include "styles/style_menu_icons.h"
 
 #include <algorithm>
 #include <memory>
 
+#include <QtCore/QDateTime>
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
 #include <QtCore/QLocale>
@@ -71,6 +73,12 @@ namespace {
 	return first + u" · "_q + second;
 }
 
+struct StatsCard {
+	const style::icon *icon = nullptr;
+	QString label;
+	QString value;
+};
+
 struct Row {
 	enum class Kind {
 		Stats,
@@ -84,9 +92,12 @@ struct Row {
 	QString title;
 	Ui::Text::String titleText;
 	QString status;
+	QString source;
+	std::vector<StatsCard> cards;
 	int64 ready = 0;
 	int64 total = 0;
 	int titleHeight = 0;
+	int titleWidth = -1;
 	Data::DownloadDate started = 0;
 	Data::PausedDownloadDescriptor paused;
 	QString path;
@@ -136,6 +147,22 @@ struct Row {
 	return title.isEmpty()
 		? QString()
 		: Tr(u"from "_q, u"来自 "_q) + title;
+}
+
+[[nodiscard]] QString StartedText(Data::DownloadDate started) {
+	return QDateTime::fromMSecsSinceEpoch(started).toString(u"yyyyMMddHHmm"_q);
+}
+
+// WHY: the search box has to match the same fields the row shows, so the
+// source name and the start time are kept alongside the title.
+[[nodiscard]] bool MatchesQuery(const Row &row, const QString &query) {
+	if (query.isEmpty()) {
+		return true;
+	}
+	const auto needle = query.toLower();
+	return row.title.toLower().contains(needle)
+		|| row.source.toLower().contains(needle)
+		|| StartedText(row.started).contains(needle);
 }
 
 // WHY: Ui::FormatSizeText stops at MB, so a multi-GB total is unreadable.
@@ -476,6 +503,7 @@ private:
 
 	void rebuild();
 	void buildRows();
+	void setSearchQuery(const QString &query);
 	void updateProgress();
 	int relayout(int newWidth);
 	[[nodiscard]] int rowAt(QPoint position) const;
@@ -486,6 +514,7 @@ private:
 	void showInFolder(const Row &row) const;
 	[[nodiscard]] QRect toggleRect(const Row &row) const;
 	void paintSmall(Painter &p, const Row &row) const;
+	void paintStats(Painter &p, const Row &row) const;
 	void paintItem(Painter &p, const Row &row, bool hovered) const;
 
 	not_null<Info::Controller*> _controller;
@@ -499,6 +528,7 @@ private:
 	int _hovered = -1;
 	QPoint _lastClick;
 	bool _downloadingCollapsed = false;
+	QString _query;
 	bool _rebuilding = false;
 	base::Timer _rebuildTimer;
 	int _rowsVersion = 0;
@@ -563,6 +593,14 @@ void InnerWidget::rebuild() {
 	update();
 }
 
+void InnerWidget::setSearchQuery(const QString &query) {
+	if (_query == query) {
+		return;
+	}
+	_query = query;
+	rebuild();
+}
+
 void InnerWidget::buildRows() {
 	auto &manager = Core::App().downloadManager();
 	auto result = std::vector<Row>();
@@ -598,6 +636,7 @@ void InnerWidget::buildRows() {
 		row.status = JoinStatus(
 			SourceText(id->object.item->history()->peer->name()),
 			ProgressText(id->ready, id->total));
+		row.source = id->object.item->history()->peer->name();
 		loading.push_back(std::move(row));
 	}
 
@@ -623,11 +662,17 @@ void InnerWidget::buildRows() {
 			JoinStatus(
 				SourceText(descriptor->sourceTitle),
 				ProgressText(row.ready, row.total)));
+		row.source = descriptor->sourceTitle;
 		paused.push_back(std::move(row));
 	}
 
 	auto completed = std::vector<Row>();
+	auto totalFiles = int64(0);
 	auto totalSize = int64(0);
+	auto videoFiles = int64(0);
+	auto videoSize = int64(0);
+	auto imageFiles = int64(0);
+	auto imageSize = int64(0);
 	for (const auto id : manager.loadedList()) {
 		if (id->path.isEmpty()) {
 			continue;
@@ -642,10 +687,21 @@ void InnerWidget::buildRows() {
 		if (id->object) {
 			row.thumb = ThumbnailFor(*id->object, _thumbs);
 		}
+		row.source = PeerTitleOf(*id);
 		row.status = JoinStatus(
 			SizeText(id->size),
-			SourceText(PeerTitleOf(*id)));
+			SourceText(row.source));
+		++totalFiles;
 		totalSize += id->size;
+		const auto document = id->object ? id->object->document : nullptr;
+		if (document
+			&& (document->isVideoMessage() || document->isVideoFile())) {
+			++videoFiles;
+			videoSize += id->size;
+		} else if (document && document->isImage()) {
+			++imageFiles;
+			imageSize += id->size;
+		}
 		completed.push_back(std::move(row));
 	}
 	std::sort(completed.begin(), completed.end(), [](const Row &a, const Row &b) {
@@ -653,13 +709,46 @@ void InnerWidget::buildRows() {
 	});
 
 	if (!completed.empty()) {
-		const auto sizeText = SizeText(totalSize);
 		auto stats = Row();
 		stats.kind = Row::Kind::Stats;
-		stats.title = Tr(
-			tr::lng_downloads_big_total(tr::now, lt_size, sizeText),
-			u"共 %1"_q.arg(sizeText));
+		stats.cards = {
+			{
+				&st::downloadsBigStatsIconTotal,
+				Tr(u"Total"_q, u"全部"_q),
+				Tr(u"%1 files  %2"_q, u"%1 个文件  %2"_q)
+					.arg(totalFiles)
+					.arg(SizeText(totalSize)),
+			},
+			{
+				&st::downloadsBigStatsIconVideo,
+				Tr(u"Videos"_q, u"视频"_q),
+				Tr(u"%1 files  %2"_q, u"%1 个文件  %2"_q)
+					.arg(videoFiles)
+					.arg(SizeText(videoSize)),
+			},
+			{
+				&st::downloadsBigStatsIconImage,
+				Tr(u"Photos"_q, u"图片"_q),
+				Tr(u"%1 files  %2"_q, u"%1 个文件  %2"_q)
+					.arg(imageFiles)
+					.arg(SizeText(imageSize)),
+			},
+		};
 		result.push_back(std::move(stats));
+	}
+	if (!_query.isEmpty()) {
+		const auto filter = [&](std::vector<Row> &list) {
+			auto kept = std::vector<Row>();
+			for (auto &row : list) {
+				if (MatchesQuery(row, _query)) {
+					kept.push_back(std::move(row));
+				}
+			}
+			list = std::move(kept);
+		};
+		filter(loading);
+		filter(paused);
+		filter(completed);
 	}
 	// WHY: a paused task is still a download task, so it stays in the
 	// downloading group instead of moving to a list of its own.
@@ -698,7 +787,7 @@ void InnerWidget::buildRows() {
 }
 
 void InnerWidget::updateProgress() {
-	if (_downloadingCollapsed) {
+	if (_downloadingCollapsed || !_query.isEmpty()) {
 		return;
 	}
 	auto &manager = Core::App().downloadManager();
@@ -761,6 +850,16 @@ int InnerWidget::relayout(int newWidth) {
 			top += row.geometry.height();
 			continue;
 		}
+		if (row.kind == Row::Kind::Stats) {
+			top += st::downloadsBigHeaderTop;
+			row.geometry = QRect(
+				0,
+				top,
+				newWidth,
+				st::downloadsBigStatsHeight);
+			top += row.geometry.height() + st::downloadsBigHeaderBottom;
+			continue;
+		}
 		if (row.small()) {
 			top += st::downloadsBigHeaderTop;
 			row.geometry = QRect(
@@ -783,6 +882,17 @@ int InnerWidget::relayout(int newWidth) {
 		const auto textWidth = std::max(
 			newWidth - padding.right() - actionWidth - textLeft,
 			0);
+		// WHY: a long unbroken name is split into per-grapheme words only
+		// when the parser gets a real resize width; the default kQFixedMax
+		// keeps it on one line, so the status lands on the second painted line.
+		if (row.titleWidth != textWidth) {
+			row.titleWidth = textWidth;
+			row.titleText = Ui::Text::String(
+				_nameStyle,
+				row.title,
+				kDefaultTextOptions,
+				textWidth);
+		}
 		row.titleHeight = row.titleText.countHeight(textWidth, true);
 		const auto statusHeight = st::downloadsBigStatusFont->height;
 		const auto hasProgress = (row.kind == Row::Kind::Downloading)
@@ -925,7 +1035,8 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 	if (_rows.empty()) {
 		// WHY: the loaded entries only appear once resolve() has filled them,
 		// so an empty list right after opening means "still loading".
-		const auto loading = Core::App().downloadManager().loadedCount() > 0;
+		const auto loading = _query.isEmpty()
+			&& (Core::App().downloadManager().loadedCount() > 0);
 		p.setFont(st::downloadsBigEmptyFont);
 		p.setPen(st::downloadsBigEmptyFg);
 		p.drawText(
@@ -939,9 +1050,11 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 				? Tr(
 					tr::lng_downloads_big_loading(tr::now),
 					u"正在读取下载记录…"_q)
-				: Tr(
-					tr::lng_downloads_big_empty(tr::now),
-					u"还没有下载任务"_q));
+				: (_query.isEmpty()
+					? Tr(
+						tr::lng_downloads_big_empty(tr::now),
+						u"还没有下载任务"_q)
+					: Tr(u"No matches"_q, u"没有匹配的任务"_q)));
 		return;
 	}
 	const auto clip = e->rect();
@@ -954,6 +1067,10 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 			_actionBar.paintIn(p, row.geometry);
 			continue;
 		}
+		if (row.kind == Row::Kind::Stats) {
+			paintStats(p, row);
+			continue;
+		}
 		const auto hovered = (_hovered == i) && row.hoverable();
 		if (hovered) {
 			p.fillRect(row.geometry, st::downloadsBigRowBgOver);
@@ -963,6 +1080,68 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 		} else {
 			paintItem(p, row, hovered);
 		}
+	}
+}
+
+void InnerWidget::paintStats(Painter &p, const Row &row) const {
+	const auto count = int(row.cards.size());
+	if (!count) {
+		return;
+	}
+	const auto outer = st::downloadsBigPadding.left();
+	const auto inner = std::max(row.geometry.width() - 2 * outer, 0);
+	const auto cardWidth = std::max(
+		(inner - (count - 1) * st::downloadsBigStatsSkip) / count,
+		0);
+	const auto padding = st::downloadsBigStatsPadding;
+	const auto iconSize = st::downloadsBigStatsIconSize;
+	const auto labelHeight = st::downloadsBigStatsLabelFont->height;
+	const auto valueHeight = st::downloadsBigStatsValueFont->height;
+	const auto contentHeight = labelHeight
+		+ st::downloadsBigStatsLabelSkip
+		+ valueHeight;
+	auto left = row.geometry.left() + outer;
+	for (const auto &card : row.cards) {
+		const auto rect = QRect(
+			left,
+			row.geometry.top(),
+			cardWidth,
+			row.geometry.height());
+		{
+			auto hq = PainterHighQualityEnabler(p);
+			p.setPen(Qt::NoPen);
+			p.setBrush(st::downloadsBigStatsBg);
+			p.drawRoundedRect(
+				rect,
+				st::downloadsBigStatsRadius,
+				st::downloadsBigStatsRadius);
+		}
+		card.icon->paintInCenter(p, QRect(
+			rect.x() + padding.left(),
+			rect.y() + (rect.height() - iconSize.height()) / 2,
+			iconSize.width(),
+			iconSize.height()));
+		const auto textLeft = rect.x() + padding.left() + iconSize.width()
+			+ st::downloadsBigStatsIconSkip;
+		const auto textWidth = rect.right() - padding.right() - textLeft;
+		const auto textTop = rect.y() + (rect.height() - contentHeight) / 2;
+		p.setFont(st::downloadsBigStatsLabelFont);
+		p.setPen(st::downloadsBigStatsLabelFg);
+		p.drawText(
+			QRect(textLeft, textTop, textWidth, labelHeight),
+			Qt::AlignLeft | Qt::AlignVCenter,
+			st::downloadsBigStatsLabelFont->elided(card.label, textWidth));
+		p.setFont(st::downloadsBigStatsValueFont);
+		p.setPen(st::downloadsBigStatsValueFg);
+		p.drawText(
+			QRect(
+				textLeft,
+				textTop + labelHeight + st::downloadsBigStatsLabelSkip,
+				textWidth,
+				valueHeight),
+			Qt::AlignLeft | Qt::AlignVCenter,
+			st::downloadsBigStatsValueFont->elided(card.value, textWidth));
+		left += cardWidth + st::downloadsBigStatsSkip;
 	}
 }
 
@@ -1187,10 +1366,20 @@ Section Memento::section() const {
 
 Widget::Widget(QWidget *parent, not_null<Controller*> controller)
 : ContentWidget(parent, controller) {
-	setInnerWidget(object_ptr<InnerWidget>(
+	auto inner = object_ptr<InnerWidget>(
 		this,
 		controller,
-		[=] { resumeAllPaused(); }));
+		[=] { resumeAllPaused(); });
+	const auto raw = inner.get();
+	setInnerWidget(std::move(inner));
+
+	if (controller->searchFieldController()) {
+		controller->setSearchEnabledByContent(true);
+		controller->searchQueryValue(
+		) | rpl::on_next([=](const QString &query) {
+			raw->setSearchQuery(query);
+		}, lifetime());
+	}
 }
 
 bool Widget::showInternal(not_null<ContentMemento*> memento) {
@@ -1331,18 +1520,32 @@ void Widget::importPausedListDone(const QString &json) {
 			u"这个文件不是下载列表。"_q));
 		return;
 	}
-	auto text = Tr(
-		u"Backup has %1 downloads in progress and %2 downloaded."_q,
-		u"备份文件共 %1 条下载中任务，%2 条已下载任务。"_q
-	).arg(result->downloading).arg(result->completed);
+	auto text = TextWithEntities();
+	const auto append = [&](const QString &plain) {
+		text.text += plain;
+	};
+	const auto appendBold = [&](const QString &plain) {
+		const auto offset = int(text.text.size());
+		text.text += plain;
+		text.entities.push_back(EntityInText(
+			EntityType::Semibold,
+			offset,
+			int(plain.size())));
+	};
+	append(Tr(u"Backup: "_q, u"备份文件："_q));
+	appendBold(QString::number(result->downloading));
+	append(Tr(u" in progress, "_q, u" 条下载中，"_q));
+	appendBold(QString::number(result->completed));
+	append(Tr(u" downloaded."_q, u" 条已下载。"_q));
 	if (!result->finishedSkipped.empty()) {
-		text += u"\n\n"_q + Tr(
-			u"Already downloaded, so not added to the list:"_q,
-			u"已成功下载未计入下载中列表的任务："_q);
-		for (auto i = 0; i != result->finishedSkipped.size(); ++i) {
-			text += u"\n%1. %2"_q
+		append(u"\n\n"_q);
+		appendBold(Tr(
+			u"Already on disk, skipped:"_q,
+			u"已下载、未计入下载中："_q));
+		for (auto i = 0; i != int(result->finishedSkipped.size()); ++i) {
+			append(u"\n%1. %2"_q
 				.arg(i + 1)
-				.arg(result->finishedSkipped[i]);
+				.arg(result->finishedSkipped[i]));
 		}
 	}
 	Ui::show(Ui::MakeInformBox(std::move(text)));

@@ -474,7 +474,8 @@ void Controller::updateSearchControllers(
 		&& SharedMediaAllowSearch(mediaType);
 	const auto hasRequestsListSearch = (type == Type::RequestsList);
 	const auto hasCommonGroupsSearch = (type == Type::CommonGroups);
-	const auto hasDownloadsSearch = (type == Type::Downloads);
+	const auto hasDownloadsSearch = (type == Type::Downloads)
+		|| (type == Type::DownloadsBig);
 	const auto hasMembersSearch = (type == Type::Members)
 		|| (type == Type::Profile);
 	const auto searchQuery = memento->searchFieldQuery();
