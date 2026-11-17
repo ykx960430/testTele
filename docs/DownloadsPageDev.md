@@ -1296,6 +1296,102 @@ download_progress : ... {}
 > 页面上消失。之前「先拷出来再删」的描述仅指 `pauseAll()` 为了避开迭代器失效而先拷字段再重新定位，
 > 与 UI 分组无关。
 
+### 第三轮真机反馈（2026-11-17）· 方案已定，待实现
+
+本轮 CI `24bbf42`（tag `v0.1.9-build-crash-fix`）修掉两件事：`DEBUG_LOG` 单括号编译错误、
+流媒体播放器 UAF 闪退（`media/streaming/media_streaming_player.cpp`，见
+`.ai-memory/streaming-player-uaf.md` 第 7 节）。出包后用户提了 5 项，逐条定案如下。
+**规划/实现分开，本节就是给实现会话的交接。**
+
+#### 先确认的既有结论（上一轮遗留，别重做）
+
+- ② 顶栏按钮重叠、④ MB→GB、⑤a/b/c、① 导出含已下载、⑨ `[DL]` 埋点：已提交（`8d722e4` / `24bbf42`）。
+- ③ 两行文件名与状态行重叠：**只做了加固，根因未锁定**（U4b）。若还复现，先要截图再查。
+- 续传 `[DL]` 日志（`validate` / `resume: start/clamp/did not start`）本轮才第一次有数据，
+  下一轮验证时先看 `DebugLogs/log_*.txt` 里 `[DL]` 开头的行。
+
+#### R4-1 计数口径：显示「下载中 + 暂停中」，完成立刻 -1
+
+- 左侧栏角标 = `loadingCount() + pausedCount()`
+  （`window/window_filters_menu.cpp::updateDownloadsBadge()`，约 :511）；
+  联系人列表下载条数字 = `MakeDownloadBarContent()` 的 `content.count`
+  （`data/data_download_manager.cpp` 约 :2144，显示在 `ui/controls/download_bar.cpp` 约 :86）。
+- 根因：完成时不移除条目，而是先挪进 `_loadingDone`（`data_download_manager.cpp` 约 :649），
+  等 `kClearLoadingTimeout = 5s` 的 `_clearLoadingTimer` 到点才由 `clearLoading()`（约 :1220）删除；
+  而这个定时器只在 `_loading.empty()`（全部下完）时才启动（约 :658）。
+  `loadingCount()`（约 :1179）数的是 `downloading.size()`，把「已完成还没清」的算了进去，
+  所以「一个接一个下 / 完成」时数字只涨不跌。
+- 决定：**计数只算未完成（`!done`）的条目**，完成那一瞬间就减 1
+  （`check()` 里的 `_loadingListChanges.fire({})` 已经会通知两处 UI）。
+  - `loadingCount()` 改为数 `!done`；
+  - `MakeDownloadBarContent()` 的 `count` 同理（`done` 继续单独数）；
+  - 左侧栏**保留** `+ pausedCount()`（用户选的是「下载中 + 暂停中」）；
+  - **连带必改**：`download_bar.cpp` 约 :76 的 `_finished = (_content.done == _content.count)`
+    依赖 `count` 含已完成项，改口径后要换成「还有未完成条目」的判断，否则「全部完成」动画失效。
+
+#### R4-2 除了「高级设置」，其它入口全部换成 BigPage
+
+`Info::Downloads::Make(...)` 全仓库共 5 处：
+
+| 位置 | 是什么 | 处理 |
+|------|--------|------|
+| `dialogs/dialogs_widget.cpp:1660` / `:1669` | 联系人列表顶部下载条（点条目 / 「查看」） | **换** |
+| `dialogs/ui/dialogs_suggestions.cpp:2195` | 「全部下载」标签页 | **换** |
+| `settings/sections/settings_chat.cpp:1954` | 聊天设置里的「下载」入口 | **换** |
+| `settings/sections/settings_advanced.cpp:187` | 高级设置里的「下载」入口 | **不动**（用户明确排除） |
+
+换成 `Info::DownloadsBig::Make(controller->session().user())`（签名 `Make(not_null<UserData*>)`，
+`info/downloads/info_downloads_big_widget.h:66`），并加对应 include。
+
+#### R4-3 「全部暂停 / 全部继续」并入「下载中」分组
+
+- 用户明确要求：这两个按钮**和下载中列表一同显示、放在一起**，跟着分组折叠/展开；
+  没有下载中任务时不显示。所以**不做**「保留固定条、只控制显隐」的折中方案。
+- 现状：`ActionBar` 是 `Widget` 的固定子控件（`info/downloads/info_downloads_big_widget.cpp`
+  约 :1100），靠 `setScrollTopSkip(barHeight)` 给滚动区让位（约 :1161），所以常驻、不跟随折叠。
+- 实现要点：
+  1. `Row` 增加一种 action bar 行（`relayout()` 给它一个矩形，高度沿用 `st::downloadsBigBarHeight`）；
+  2. `buildRows()` 在「下载中」header 之后插入该行，仅当 `activeCount > 0`，且受 `_collapsed[0]` 控制；
+  3. 去掉 `Widget::_actionBar` 子控件与 `setScrollTopSkip`；
+  4. `paint` / `rowAt` / `mouseMoveEvent` / `activateRow` / `updateProgress` 都要认识这种行。
+- **推荐做法**（比把 `ActionBar` 改成纯自绘省事）：保留 `ActionBar` 现有的绘制与命中代码，
+  新增一个 `paintIn(QPainter&, const QRect&)`，由 `InnerWidget::paint()` 按行矩形调用；
+  命中判断复用 `row` 矩形 —— 这样 `ActionBar` 的 hover / 按钮状态逻辑基本不用动。
+
+#### R4-4 自动备份：每加一个任务写一次盘，最多留 10 份
+
+- 命名：`AutoBackup` + `YYYYMMDDHHMMSS`（本地时间，
+  `QDateTime::currentDateTime().toString(u"yyyyMMddhhmmss")`），扩展名沿用导出用的 `.json`。
+- 位置：程序缓存目录，用 `session->local().cachePath()`
+  （`Account::cachePath()`，`storage/storage_account.h:125`）—— 它本身按账号分目录，多账号天然隔离。
+- 内容：直接复用 `exportPausedJson()`（已含 `items` + 只读 `completed`）。
+- 时机：**至少**在 `addLoading()` / `addLoadingExternal()` 里写（用户明确要求「每加一个就写盘」）。
+  **待确认**：暂停 / 恢复 / 完成时写不写（目的是崩溃后能找回，建议写，但要防高频写盘）。
+- 清理：写新文件后（或写之前）扫目录，按文件名排序，超过 10 份删最旧。
+- 写盘放主线程同步即可（几 KB）；若担心抖动再换 `crl::async`。
+
+#### R4-5 进度细线：两端圆角（胶囊）
+
+- 两处：联系人列表下载条 `ui/controls/download_bar.cpp::paint()`（约 :180）；
+  BigPage 行 `info/downloads/info_downloads_big_widget.cpp::paintItem()`（约 :973）。
+- 数据现成：下载条用 `computeProgress()`（约 :289，`ready/total`）；BigPage 行用 `row.ready / row.total`。
+- 形状：**两端半圆** → `p.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)`；
+  底轨一条浅灰 + 进度一条主色。尺寸 / 颜色一律进 `.style` 文件，
+  **禁止在代码里写死像素**（BigPage 加在 `info_downloads_big.style`）。
+
+#### 建议的批次（CI 一轮 1.5-4h，尽量合并）
+
+| 批次 | 内容 | 风险 |
+|------|------|------|
+| A | R4-1 + R4-2 + R4-5 | 低：读现成数据 + 画 UI。R4-1 与 R4-5 都要改 `download_bar`，同一批一起改 |
+| B | R4-3 | 中：`Row` 结构改动，单独一轮好回退 |
+| C | R4-4 | 中：写盘策略，先确认上面两处「待确认」 |
+
+#### 交接给实现会话的开场（可直接复制）
+
+> 读 `docs/DownloadsPageDev.md` 的「第三轮真机反馈」一节，以及 `.ai-memory/streaming-player-uaf.md`、
+> `.ai-memory/ci-windows-build.md`，然后按 R4-1 → R4-2 → R4-5 → R4-3 → R4-4 的顺序做，每批一次 CI。
+
 #### 播放器两项优化（O1 / O2）
 
 | # | 反馈 | 处理 |
