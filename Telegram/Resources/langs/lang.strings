@@ -5682,10 +5682,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_downloads_resume_all" = "Resume all downloads";
 "lng_downloads_export_done#one" = "Exported {count} download";
 "lng_downloads_export_done#other" = "Exported {count} downloads";
-"lng_downloads_import_done#one" = "Imported {count} download";
-"lng_downloads_import_done#other" = "Imported {count} downloads";
 "lng_downloads_export_empty" = "There is nothing to export.";
-"lng_downloads_import_empty" = "No new downloads were added.";
 "lng_downloads_resume_failed" = "Could not resume the download.";
 "lng_downloads_export_failed" = "Could not save the file.";
 "lng_downloads_import_failed" = "This file is not a download list.";
