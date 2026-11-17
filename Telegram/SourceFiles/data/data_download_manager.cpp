@@ -1177,16 +1177,23 @@ void DownloadManager::cancelPaused(
 }
 
 int DownloadManager::loadingCount(Main::Session *onlyInSession) const {
-	int result = 0;
+	// WHY: a finished entry stays in `downloading` until the 5s cleanup
+	// timer fires, so counting the vector size would report it forever.
+	const auto add = [](int result, const SessionData &data) {
+		for (const auto &id : data.downloading) {
+			if (!id.done) {
+				++result;
+			}
+		}
+		return result;
+	};
 	if (onlyInSession) {
 		const auto i = _sessions.find(onlyInSession);
-		if (i != end(_sessions)) {
-			result += i->second.downloading.size();
-		}
-	} else {
-		for (const auto &[session, data] : _sessions) {
-			result += data.downloading.size();
-		}
+		return (i != end(_sessions)) ? add(0, i->second) : 0;
+	}
+	auto result = 0;
+	for (const auto &[session, data] : _sessions) {
+		result = add(result, data);
 	}
 	return result;
 }
@@ -2151,12 +2158,13 @@ rpl::producer<Ui::DownloadBarContent> MakeDownloadBarContent() {
 				if (!single) {
 					single = &id->object;
 				}
-				++content.count;
 				if (id->done) {
 					++content.done;
+				} else {
+					++content.count;
 				}
 			}
-			if (content.count == 1) {
+			if (content.count + content.done == 1) {
 				const auto document = single->document;
 				const auto thumbnailed = (single->item
 					&& document->hasThumbnail())

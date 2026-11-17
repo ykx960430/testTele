@@ -93,6 +93,7 @@ struct Row {
 	QRect geometry;
 	QRect text;
 	QRect statusRect;
+	QRect progress;
 	QRect action;
 	QRect badge;
 	QRect folder;
@@ -759,9 +760,15 @@ int InnerWidget::relayout(int newWidth) {
 			0);
 		row.titleHeight = row.titleText.countHeight(textWidth, true);
 		const auto statusHeight = st::downloadsBigStatusFont->height;
+		const auto hasProgress = (row.kind == Row::Kind::Downloading)
+			|| (row.kind == Row::Kind::Paused);
+		const auto progressSpace = hasProgress
+			? (st::downloadsBigProgressHeight + st::downloadsBigProgressTop)
+			: 0;
 		const auto contentHeight = row.titleHeight
 			+ st::downloadsBigStatusTop
-			+ statusHeight;
+			+ statusHeight
+			+ progressSpace;
 		const auto innerHeight = std::max(thumbSize, contentHeight);
 		const auto rowHeight = innerHeight + padding.top() + padding.bottom();
 		row.geometry = QRect(0, top, newWidth, rowHeight);
@@ -775,6 +782,14 @@ int InnerWidget::relayout(int newWidth) {
 			row.text.y() + row.titleHeight + st::downloadsBigStatusTop,
 			textWidth,
 			statusHeight);
+		row.progress = hasProgress
+			? QRect(
+				textLeft,
+				row.statusRect.y() + statusHeight
+					+ st::downloadsBigProgressTop,
+				textWidth,
+				st::downloadsBigProgressHeight)
+			: QRect();
 		const auto actionTop = top
 			+ (rowHeight - st::downloadsBigActionSize) / 2;
 		const auto actionLeft = newWidth
@@ -1015,6 +1030,30 @@ void InnerWidget::paintItem(Painter &p, const Row &row, bool hovered) const {
 		row.statusRect,
 		Qt::AlignLeft | Qt::AlignVCenter,
 		st::downloadsBigStatusFont->elided(row.status, row.text.width()));
+
+	if (!row.progress.isNull()) {
+		const auto progress = (row.total > 0)
+			? std::clamp(double(row.ready) / double(row.total), 0., 1.)
+			: 0.;
+		auto hq = PainterHighQualityEnabler(p);
+		p.setPen(Qt::NoPen);
+		p.setBrush(st::downloadsBigProgressBg);
+		p.drawRoundedRect(
+			row.progress,
+			st::downloadsBigProgressHeight / 2.,
+			st::downloadsBigProgressHeight / 2.);
+		if (progress > 0.) {
+			auto filled = row.progress;
+			filled.setWidth(std::max(
+				int(base::SafeRound(row.progress.width() * progress)),
+				st::downloadsBigProgressHeight));
+			p.setBrush(st::downloadsBigProgressFg);
+			p.drawRoundedRect(
+				filled,
+				st::downloadsBigProgressHeight / 2.,
+				st::downloadsBigProgressHeight / 2.);
+		}
+	}
 
 	const auto &action = row.action.isEmpty() ? row.folder : row.action;
 	if (action.isEmpty()) {

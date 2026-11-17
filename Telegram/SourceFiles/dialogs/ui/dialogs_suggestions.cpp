@@ -33,7 +33,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "dialogs/dialogs_inner_widget.h"
 #include "dialogs/dialogs_search_posts.h"
 #include "history/history.h"
-#include "info/downloads/info_downloads_widget.h"
 #include "info/media/info_media_widget.h"
 #include "info/info_controller.h"
 #include "info/info_memento.h"
@@ -79,6 +78,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // AyuGram includes
 #include "ayu/ayu_settings.h"
+#include "info/downloads/info_downloads_big_widget.h"
 
 
 namespace Dialogs {
@@ -2192,7 +2192,7 @@ void Suggestions::ensureContent(Key key) {
 	}
 	const auto self = _controller->session().user();
 	const auto memento = (key.tab == Tab::Downloads)
-		? Info::Downloads::Make(self)
+		? Info::DownloadsBig::Make(self)
 		: std::make_shared<Info::Memento>(
 			self,
 			Info::Section(key.mediaType, Info::Section::Type::GlobalMedia));

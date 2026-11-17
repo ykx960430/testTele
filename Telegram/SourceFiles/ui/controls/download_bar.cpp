@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/controls/download_bar.h"
 
+#include "base/algorithm.h"
 #include "ui/widgets/buttons.h"
 #include "ui/text/format_values.h"
 #include "ui/text/text_utilities.h"
@@ -65,15 +66,11 @@ DownloadBar::DownloadBar(
 DownloadBar::~DownloadBar() = default;
 
 void DownloadBar::show(DownloadBarContent &&content) {
-	_button.toggle(content.count > 0, anim::type::normal);
-	if (!content.count) {
-		return;
-	}
-	if (!_radial.animating()) {
-		_radial.start(computeProgress());
-	}
-	_content = content;
-	const auto finished = (_content.done == _content.count);
+	_content = std::move(content);
+	// WHY: `count` only holds unfinished entries now, so the bar outlives the
+	// last one only while the finished entries wait for their cleanup.
+	const auto visible = (_content.count + _content.done) > 0;
+	const auto finished = (_content.count == 0);
 	if (_finished != finished) {
 		_finished = finished;
 		_finishedAnimation.start(
@@ -82,13 +79,20 @@ void DownloadBar::show(DownloadBarContent &&content) {
 			_finished ? 1. : 0.,
 			st::widgetFadeDuration);
 	}
+	_button.toggle(visible, anim::type::normal);
+	if (!visible) {
+		return;
+	}
+	if (!_radial.animating()) {
+		_radial.start(computeProgress());
+	}
 	refreshThumbnail();
 	_title.setMarkedText(
 		st::defaultTextStyle,
-		(content.count > 1
+		(_content.count > 1
 			? tr::bold(
-				tr::lng_profile_files(tr::now, lt_count, content.count))
-			: content.singleName));
+				tr::lng_profile_files(tr::now, lt_count, _content.count))
+			: _content.singleName));
 	refreshInfo(_progress.current());
 }
 
@@ -282,6 +286,35 @@ void DownloadBar::paint(Painter &p, QRect clip) {
 		available,
 		outerw);
 
+	const auto progressHeight = st::downloadBarProgressHeight;
+	const auto progressRect = QRect(
+		st::downloadTitleLeft,
+		st::downloadBarHeight - st::downloadBarProgressBottom
+			- progressHeight,
+		available,
+		progressHeight);
+	if (progressRect.width() > 0 && progressRect.intersects(clip)) {
+		auto hq = PainterHighQualityEnabler(p);
+		p.setPen(Qt::NoPen);
+		p.setBrush(st::downloadBarProgressBg);
+		p.drawRoundedRect(
+			progressRect,
+			progressHeight / 2.,
+			progressHeight / 2.);
+		const auto progress = computeProgress();
+		if (progress > 0.) {
+			auto filled = progressRect;
+			filled.setWidth(std::max(
+				int(base::SafeRound(available * progress)),
+				progressHeight));
+			p.setBrush(st::downloadBarProgressFg);
+			p.drawRoundedRect(
+				filled,
+				progressHeight / 2.,
+				progressHeight / 2.);
+		}
+	}
+
 	const auto iconTop = (st::downloadBarHeight - icon.height()) / 2;
 	icon.paint(p, outerw - right, iconTop, outerw);
 }
@@ -292,7 +325,7 @@ float64 DownloadBar::computeProgress() const {
 }
 
 void DownloadBar::radialAnimationCallback(crl::time now) {
-	const auto finished = (_content.done == _content.count);
+	const auto finished = (_content.count == 0);
 	const auto updated = _radial.update(computeProgress(), finished, now);
 	if (!anim::Disabled() || updated) {
 		const auto button = _button.entity();

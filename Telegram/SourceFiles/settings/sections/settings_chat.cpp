@@ -61,7 +61,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_adaptive.h"
 #include "window/window_session_controller.h"
 #include "window/window_controller.h"
-#include "info/downloads/info_downloads_widget.h"
 #include "info/info_memento.h"
 #include "storage/localstorage.h"
 #include "core/file_utilities.h"
@@ -92,6 +91,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // AyuGram includes
 #include "ayu/features/message_shot/message_shot.h"
+#include "info/downloads/info_downloads_big_widget.h"
 #include "window/themes/window_theme_preview.h"
 
 
@@ -1951,7 +1951,7 @@ void SetupDataStorage(
 		{ &st::menuIconDownload }
 	)->setClickedCallback([=] {
 		controller->showSection(
-			Info::Downloads::Make(controller->session().user()));
+			Info::DownloadsBig::Make(controller->session().user()));
 	});
 
 	const auto ask = container->add(object_ptr<Ui::SettingsButton>(

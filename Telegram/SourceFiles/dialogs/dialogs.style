@@ -624,6 +624,10 @@ downloadLoadingLine: 2px;
 downloadIconDocument: icon {{ "dialogs/dialogs_downloads", windowFgActive }};
 downloadIconSize: 16px;
 downloadIconSizeDone: 20px;
+downloadBarProgressHeight: 3px;
+downloadBarProgressBottom: 2px;
+downloadBarProgressBg: windowBgOver;
+downloadBarProgressFg: activeLineFg;
 
 forumTopicRow: DialogRow(defaultDialogRow) {
 	height: 54px;

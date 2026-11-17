@@ -91,7 +91,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_saved_messages.h"
 #include "data/data_saved_sublist.h"
 #include "data/data_stories.h"
-#include "info/downloads/info_downloads_widget.h"
 #include "info/profile/info_profile_values.h"
 #include "info/info_memento.h"
 #include "inline_bots/bot_attach_web_view.h"
@@ -112,6 +111,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/ayu_settings.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "base/platform/base_platform_haptic.h"
+#include "info/downloads/info_downloads_big_widget.h"
 
 
 namespace Dialogs {
@@ -1657,7 +1657,7 @@ void Widget::setupDownloadBar() {
 						first = id->object.item;
 					} else {
 						controller()->showSection(
-							Info::Downloads::Make(
+							Info::DownloadsBig::Make(
 								controller()->session().user()));
 						return;
 					}
@@ -1666,7 +1666,7 @@ void Widget::setupDownloadBar() {
 					controller()->showMessage(first);
 				} else if (first) {
 					controller()->showSection(
-						Info::Downloads::Make(
+						Info::DownloadsBig::Make(
 							controller()->session().user()));
 				}
 			}, _downloadBar->lifetime());

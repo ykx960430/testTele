@@ -31,6 +31,10 @@ downloadsBigNameFg: windowFg;
 downloadsBigStatusFont: font(12px);
 downloadsBigStatusFg: windowSubTextFg;
 downloadsBigStatusTop: 4px;
+downloadsBigProgressHeight: 3px;
+downloadsBigProgressTop: 4px;
+downloadsBigProgressBg: windowBgOver;
+downloadsBigProgressFg: activeLineFg;
 
 downloadsBigActionSize: 32px;
 downloadsBigActionSkip: 8px;
