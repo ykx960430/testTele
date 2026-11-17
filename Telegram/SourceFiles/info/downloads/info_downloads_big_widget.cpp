@@ -1015,7 +1015,6 @@ void InnerWidget::paintSmall(Painter &p, const Row &row) const {
 }
 
 void InnerWidget::paintItem(Painter &p, const Row &row, bool hovered) const {
-	const auto &padding = st::downloadsBigRowPadding;
 	const auto thumbSize = st::downloadsBigThumbSize;
 
 	auto thumbRect = QRect(
@@ -1336,7 +1335,7 @@ void Widget::importPausedListDone(const QString &json) {
 		u"Backup has %1 downloads in progress and %2 downloaded."_q,
 		u"备份文件共 %1 条下载中任务，%2 条已下载任务。"_q
 	).arg(result->downloading).arg(result->completed);
-	if (!result->finishedSkipped.isEmpty()) {
+	if (!result->finishedSkipped.empty()) {
 		text += u"\n\n"_q + Tr(
 			u"Already downloaded, so not added to the list:"_q,
 			u"已成功下载未计入下载中列表的任务："_q);
