@@ -40,6 +40,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "styles/style_layers.h"
 
+#include <QtCore/QDateTime>
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
@@ -50,6 +51,22 @@ namespace {
 constexpr auto kClearLoadingTimeout = 5 * crl::time(1000);
 constexpr auto kMaxFileSize = 4000 * int64(1024 * 1024);
 constexpr auto kMaxResolvePerAttempt = 100;
+constexpr auto kAutoBackupKeep = 10;
+
+void PruneAutoBackups(const QString &base) {
+	const auto entries = QDir(base).entryList(
+		QDir::Files | QDir::NoDotAndDotDot,
+		QDir::Name);
+	auto names = std::vector<QString>();
+	for (const auto &name : entries) {
+		if (name.startsWith(u"AutoBackup"_q) && name.endsWith(u".json"_q)) {
+			names.push_back(name);
+		}
+	}
+	for (auto i = 0; i + kAutoBackupKeep < names.size(); ++i) {
+		QFile::remove(base + u"/"_q + names[i]);
+	}
+}
 
 constexpr auto ByItem = [](const auto &entry) {
 	if constexpr (std::is_same_v<decltype(entry), const DownloadingId&>) {
@@ -407,6 +424,7 @@ void DownloadManager::addLoading(DownloadObject object) {
 	_loadingListChanges.fire({});
 	_clearLoadingTimer.cancel();
 	writeInflightPostponed();
+	writeAutoBackup(&item->history()->session());
 
 	check(item);
 }
@@ -444,6 +462,7 @@ void DownloadManager::addLoadingExternal(
 	_loadingListChanges.fire({});
 	_clearLoadingTimer.cancel();
 	writeInflightPostponed();
+	writeAutoBackup(&item->history()->session());
 }
 
 auto DownloadManager::lookupExternal(not_null<const HistoryItem*> item)
@@ -1640,6 +1659,36 @@ void DownloadManager::writeInflightPostponed() {
 				return serializeInflight();
 			});
 	}
+}
+
+void DownloadManager::writeAutoBackup(not_null<Main::Session*> session) {
+	const auto json = exportPausedJson();
+	if (json.isEmpty()) {
+		return;
+	}
+	const auto base = session->local().cachePath();
+	if (!QDir().mkpath(base)) {
+		DEBUG_LOG(("[DL] autobackup: no cache dir %1").arg(base));
+		return;
+	}
+	const auto path = base
+		+ u"/AutoBackup"_q
+		+ QDateTime::currentDateTime().toString(u"yyyyMMddhhmmss"_q)
+		+ u".json"_q;
+	const auto bytes = json.toUtf8();
+	auto file = QFile(path);
+	const auto opened = file.open(QIODevice::WriteOnly);
+	const auto written = opened ? file.write(bytes) : qint64(-1);
+	// WHY: a half-written file would look like the newest backup, so a failed
+	// write has to be removed instead of staying in the rotation.
+	if (written != bytes.size()) {
+		file.close();
+		QFile::remove(path);
+		DEBUG_LOG(("[DL] autobackup: write failed %1").arg(path));
+		return;
+	}
+	file.close();
+	PruneAutoBackups(base);
 }
 
 Fn<std::optional<QByteArray>()> DownloadManager::serializator(

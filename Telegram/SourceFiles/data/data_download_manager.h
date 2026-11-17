@@ -260,6 +260,7 @@ private:
 	[[nodiscard]] QByteArray serializeInflight() const;
 	void deserializeInflight(const QByteArray &data);
 	void writeInflightPostponed();
+	void writeAutoBackup(not_null<Main::Session*> session);
 	void validatePausedDownloads();
 	[[nodiscard]] bool resumePaused(
 		const PausedDownloadDescriptor &paused,
