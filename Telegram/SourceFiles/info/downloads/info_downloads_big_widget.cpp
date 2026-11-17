@@ -493,6 +493,8 @@ public:
 		not_null<Info::Controller*> controller,
 		Fn<void()> resumeAll);
 
+	void setSearchQuery(const QString &query);
+
 private:
 	int resizeGetHeight(int newWidth) override;
 	void paintEvent(QPaintEvent *e) override;
@@ -503,7 +505,6 @@ private:
 
 	void rebuild();
 	void buildRows();
-	void setSearchQuery(const QString &query);
 	void updateProgress();
 	int relayout(int newWidth);
 	[[nodiscard]] int rowAt(QPoint position) const;
