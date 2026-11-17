@@ -25,6 +25,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/algorithm.h"
 #include "base/flat_map.h"
 #include "base/timer.h"
+#include "boxes/abstract_box.h"
+#include "ui/boxes/confirm_box.h"
 #include "ui/image/image.h"
 #include "ui/image/image_prepare.h"
 #include "ui/painter.h"
@@ -1321,18 +1323,30 @@ void Widget::importPausedList() {
 }
 
 void Widget::importPausedListDone(const QString &json) {
-	const auto added = Core::App().downloadManager().importPausedJson(json);
-	Ui::Toast::Show(!added.has_value()
-		? Tr(
+	const auto result = Core::App().downloadManager().importPausedJson(
+		json,
+		&controller()->session());
+	if (!result) {
+		Ui::Toast::Show(Tr(
 			tr::lng_downloads_import_failed(tr::now),
-			u"这个文件不是下载列表。"_q)
-		: (*added
-			? Tr(
-				tr::lng_downloads_import_done(tr::now, lt_count, *added),
-				u"已导入 %1 个下载任务"_q.arg(*added))
-			: Tr(
-				tr::lng_downloads_import_empty(tr::now),
-				u"没有新的下载任务被添加。"_q)));
+			u"这个文件不是下载列表。"_q));
+		return;
+	}
+	auto text = Tr(
+		u"Backup has %1 downloads in progress and %2 downloaded."_q,
+		u"备份文件共 %1 条下载中任务，%2 条已下载任务。"_q
+	).arg(result->downloading).arg(result->completed);
+	if (!result->finishedSkipped.isEmpty()) {
+		text += u"\n\n"_q + Tr(
+			u"Already downloaded, so not added to the list:"_q,
+			u"已成功下载未计入下载中列表的任务："_q);
+		for (auto i = 0; i != result->finishedSkipped.size(); ++i) {
+			text += u"\n%1. %2"_q
+				.arg(i + 1)
+				.arg(result->finishedSkipped[i]);
+		}
+	}
+	Ui::show(Ui::MakeInformBox(std::move(text)));
 }
 
 std::shared_ptr<ContentMemento> Widget::doCreateMemento() {

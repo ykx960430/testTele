@@ -45,6 +45,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 
+#include <set>
+
 namespace Data {
 namespace {
 
@@ -2032,7 +2034,9 @@ QString DownloadManager::exportPausedJson() const {
 	return QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Indented));
 }
 
-std::optional<int> DownloadManager::importPausedJson(const QString &json) {
+std::optional<DownloadManager::ImportResult> DownloadManager::importPausedJson(
+		const QString &json,
+		not_null<Main::Session*> session) {
 	auto error = QJsonParseError();
 	const auto document = QJsonDocument::fromJson(json.toUtf8(), &error);
 	if (error.error != QJsonParseError::NoError || !document.isObject()) {
@@ -2045,7 +2049,6 @@ std::optional<int> DownloadManager::importPausedJson(const QString &json) {
 	if (root.value(u"version"_q).toInt() != 1) {
 		return std::nullopt;
 	}
-	const auto items = root.value(u"items"_q).toArray();
 	const auto readInt = [](const QJsonObject &object, const QString &key) {
 		const auto value = object.value(key);
 		if (value.isString()) {
@@ -2053,7 +2056,57 @@ std::optional<int> DownloadManager::importPausedJson(const QString &json) {
 		}
 		return qint64(value.toDouble());
 	};
-	auto added = 0;
+	const auto keyOf = [](
+			uint64 documentId,
+			uint64 photoId,
+			int64 itemIdPeer,
+			int64 itemIdMsg) {
+		return QString(u"%1:%2:%3:%4"_q
+			).arg(documentId
+			).arg(photoId
+			).arg(itemIdPeer
+			).arg(itemIdMsg);
+	};
+	// WHY: a backup writes both paused and running entries into `items`, so an
+	// entry that is already downloading or already on disk has to be dropped
+	// instead of being added to the paused list a second time.
+	const auto pausedKey = [&](const PausedDownloadDescriptor &d) {
+		return keyOf(d.documentId, d.photoId, d.itemIdPeer, d.itemIdMsg);
+	};
+	const auto downloadingKey = [&](const DownloadingId &entry) {
+		const auto &object = entry.object;
+		const auto peer = object.item->history()->peer;
+		return keyOf(
+			object.document ? object.document->id : uint64(0),
+			object.photo ? object.photo->id : uint64(0),
+			int64(peer->id.value),
+			int64(object.item->id.bare));
+	};
+	const auto downloadedKey = [&](const DownloadedId &id) {
+		return keyOf(
+			id.download.type == DownloadType::Document
+				? id.download.objectId : uint64(0),
+			id.download.type == DownloadType::Photo
+				? id.download.objectId : uint64(0),
+			int64(id.itemId.peer.value),
+			int64(id.itemId.msg.bare));
+	};
+	auto inFlight = std::set<QString>();
+	auto finished = std::set<QString>();
+	for (const auto &d : _paused) {
+		inFlight.insert(pausedKey(d));
+	}
+	for (const auto &[stored, data] : _sessions) {
+		for (const auto &entry : data.downloading) {
+			inFlight.insert(downloadingKey(entry));
+		}
+		for (const auto &id : data.downloaded) {
+			finished.insert(downloadedKey(id));
+		}
+	}
+	auto result = ImportResult();
+	const auto items = root.value(u"items"_q).toArray();
+	result.downloading = int(items.size());
 	for (const auto &value : items) {
 		const auto object = value.toObject();
 		auto descriptor = PausedDownloadDescriptor();
@@ -2089,26 +2142,70 @@ std::optional<int> DownloadManager::importPausedJson(const QString &json) {
 		if (descriptor.path.isEmpty() || !descriptor.documentId) {
 			continue;
 		}
-		const auto duplicate = ranges::any_of(_paused, [&](
-				const PausedDownloadDescriptor &d) {
-			return (d.documentId == descriptor.documentId)
-				&& (d.photoId == descriptor.photoId)
-				&& (d.itemIdPeer == descriptor.itemIdPeer)
-				&& (d.itemIdMsg == descriptor.itemIdMsg);
-		});
-		if (duplicate) {
+		const auto key = keyOf(
+			descriptor.documentId,
+			descriptor.photoId,
+			descriptor.itemIdPeer,
+			descriptor.itemIdMsg);
+		if (finished.contains(key)) {
+			result.finishedSkipped.push_back(
+				!descriptor.displayName.isEmpty()
+					? descriptor.displayName
+					: QFileInfo(descriptor.path).fileName());
 			continue;
 		}
+		if (inFlight.contains(key)) {
+			continue;
+		}
+		inFlight.insert(key);
 		_paused.push_back(std::move(descriptor));
-		++added;
+		++result.addedPaused;
 	}
-	if (!added) {
-		return added;
+	const auto completed = root.value(u"completed"_q).toArray();
+	result.completed = int(completed.size());
+	auto &data = sessionData(session);
+	for (const auto &value : completed) {
+		const auto object = value.toObject();
+		const auto documentId = object.value(
+			u"documentId"_q).toString().toULongLong();
+		const auto photoId = object.value(
+			u"photoId"_q).toString().toULongLong();
+		const auto itemIdPeer = readInt(object, u"itemIdPeer"_q);
+		const auto itemIdMsg = readInt(object, u"itemIdMsg"_q);
+		const auto path = object.value(u"path"_q).toString();
+		if (path.isEmpty() || (!documentId && !photoId)
+			|| !itemIdPeer || !itemIdMsg) {
+			continue;
+		}
+		const auto key = keyOf(documentId, photoId, itemIdPeer, itemIdMsg);
+		if (finished.contains(key)) {
+			continue;
+		}
+		finished.insert(key);
+		data.downloaded.push_back({
+			.download = DownloadId{
+				documentId ? documentId : photoId,
+				documentId ? DownloadType::Document : DownloadType::Photo },
+			.started = readInt(object, u"started"_q),
+			.path = path,
+			.size = readInt(object, u"size"_q),
+			.itemId = FullMsgId(PeerId(itemIdPeer), MsgId(itemIdMsg)),
+			.peerAccessHash = 0,
+			.object = nullptr,
+		});
+		++result.addedCompleted;
 	}
-	validatePausedDownloads();
-	_pausedListChanges.fire({});
-	flushPaused();
-	return added;
+	if (result.addedPaused) {
+		validatePausedDownloads();
+		_pausedListChanges.fire({});
+		flushPaused();
+	}
+	if (result.addedCompleted) {
+		data.resolveNeeded += result.addedCompleted;
+		writePostponed(session);
+		resolve(session, data);
+	}
+	return result;
 }
 
 void DownloadManager::untrack(not_null<Main::Session*> session) {
