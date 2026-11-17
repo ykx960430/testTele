@@ -47,8 +47,6 @@ public:
 	rpl::producer<QString> title() override;
 
 private:
-	void resizeEvent(QResizeEvent *e) override;
-
 	void saveState(not_null<Memento*> memento);
 	void restoreState(not_null<Memento*> memento);
 
@@ -58,8 +56,6 @@ private:
 	void resumeAllPaused();
 
 	std::shared_ptr<ContentMemento> doCreateMemento() override;
-
-	Ui::RpWidget *_actionBar = nullptr;
 
 };
 

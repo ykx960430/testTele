@@ -73,6 +73,7 @@ struct Row {
 	enum class Kind {
 		Stats,
 		Header,
+		ActionBar,
 		Downloading,
 		Paused,
 		Completed,
@@ -106,7 +107,8 @@ struct Row {
 			|| (kind == Kind::Paused);
 	}
 	[[nodiscard]] bool hoverable() const {
-		return clickable() || collapsible || !action.isEmpty();
+		return clickable() || collapsible || !action.isEmpty()
+			|| (kind == Kind::ActionBar);
 	}
 	[[nodiscard]] bool small() const {
 		return (kind == Kind::Header) || (kind == Kind::Stats);
@@ -248,12 +250,21 @@ void DrawTitle(Painter &p, const Ui::Text::String &text, const QRect &rect) {
 
 namespace {
 
-class ActionBar final : public Ui::RpWidget {
+class ActionBar final {
 public:
 	ActionBar(
-		QWidget *parent,
 		Fn<void()> pauseAll,
-		Fn<void()> resumeAll);
+		Fn<void()> resumeAll,
+		Fn<void()> repaint);
+
+	void paintIn(Painter &p, const QRect &rect) const;
+	void mouseMove(QPoint position, const QRect &rect);
+	void mousePress(QPoint position, const QRect &rect);
+	void mouseRelease(QPoint position, const QRect &rect);
+	void leave();
+	void refresh();
+
+	[[nodiscard]] bool isHovered() const;
 
 private:
 	enum class Action {
@@ -261,49 +272,43 @@ private:
 		Pause,
 		Resume,
 	};
+	struct ButtonRects {
+		QRect pause;
+		QRect resume;
+	};
 
-	void paintEvent(QPaintEvent *) override;
-	void resizeEvent(QResizeEvent *) override;
-	void mouseMoveEvent(QMouseEvent *e) override;
-	void mousePressEvent(QMouseEvent *e) override;
-	void mouseReleaseEvent(QMouseEvent *e) override;
-	void leaveEventHook(QEvent *) override;
-
-	void refresh();
-	void updateRects();
-	[[nodiscard]] Action actionAt(QPoint position) const;
-	[[nodiscard]] QRect rectFor(Action action) const;
+	[[nodiscard]] ButtonRects buttonRects(const QRect &rect) const;
+	[[nodiscard]] Action actionAt(QPoint position, const QRect &rect) const;
+	[[nodiscard]] QRect rectFor(Action action, const QRect &rect) const;
 	[[nodiscard]] QString textFor(Action action) const;
 	[[nodiscard]] bool enabled(Action action) const;
 
 	Fn<void()> _pauseAll;
 	Fn<void()> _resumeAll;
+	Fn<void()> _repaint;
 	QString _pauseText;
 	QString _resumeText;
-	QRect _pauseRect;
-	QRect _resumeRect;
 	Action _hovered = Action::None;
 	Action _pressed = Action::None;
 	int _loadingCount = 0;
 	int _pausedCount = 0;
+	rpl::lifetime _lifetime;
 
 };
 
 ActionBar::ActionBar(
-	QWidget *parent,
 	Fn<void()> pauseAll,
-	Fn<void()> resumeAll)
-: RpWidget(parent)
-, _pauseAll(std::move(pauseAll))
+	Fn<void()> resumeAll,
+	Fn<void()> repaint)
+: _pauseAll(std::move(pauseAll))
 , _resumeAll(std::move(resumeAll))
+, _repaint(std::move(repaint))
 , _pauseText(Tr(
 	tr::lng_downloads_pause_all(tr::now),
 	u"全部暂停"_q))
 , _resumeText(Tr(
 	tr::lng_downloads_resume_all(tr::now),
 	u"全部继续"_q)) {
-	setMouseTracking(true);
-
 	auto &manager = Core::App().downloadManager();
 	_loadingCount = manager.loadingCount();
 	_pausedCount = manager.pausedCount();
@@ -312,11 +317,11 @@ ActionBar::ActionBar(
 		manager.pausedListChanges() | rpl::map_to(true)
 	) | rpl::on_next([=] {
 		refresh();
-	}, lifetime());
+	}, _lifetime);
 }
 
-void ActionBar::resizeEvent(QResizeEvent *) {
-	updateRects();
+bool ActionBar::isHovered() const {
+	return _hovered != Action::None;
 }
 
 void ActionBar::refresh() {
@@ -330,40 +335,31 @@ void ActionBar::refresh() {
 	_pausedCount = paused;
 	if (_hovered != Action::None && !enabled(_hovered)) {
 		_hovered = Action::None;
-		setCursor(style::cur_default);
 	}
-	update();
+	_repaint();
 }
 
-void ActionBar::updateRects() {
+ActionBar::ButtonRects ActionBar::buttonRects(const QRect &rect) const {
 	const auto &font = st::downloadsBigBarButtonFont;
 	const auto &padding = st::downloadsBigBarButtonPadding;
 	const auto buttonHeight = font->height + padding.top() + padding.bottom();
-	const auto top = (height() - buttonHeight) / 2;
-	auto left = st::downloadsBigBarPadding.left();
-	const auto place = [&](const QString &text) {
-		const auto buttonWidth = font->width(text)
-			+ padding.left()
-			+ padding.right();
-		auto result = QRect(left, top, buttonWidth, buttonHeight);
-		left = result.right() + st::downloadsBigBarButtonSkip;
-		return result;
+	const auto top = rect.y() + (rect.height() - buttonHeight) / 2;
+	const auto left = rect.x() + st::downloadsBigBarPadding.left();
+	const auto widthOf = [&](const QString &text) {
+		return font->width(text) + padding.left() + padding.right();
 	};
-	_pauseRect = place(_pauseText);
-	_resumeRect = place(_resumeText);
+	const auto pause = QRect(left, top, widthOf(_pauseText), buttonHeight);
+	const auto resume = QRect(
+		pause.right() + st::downloadsBigBarButtonSkip,
+		top,
+		widthOf(_resumeText),
+		buttonHeight);
+	return { pause, resume };
 }
 
-ActionBar::Action ActionBar::actionAt(QPoint position) const {
-	if (_pauseRect.contains(position)) {
-		return Action::Pause;
-	} else if (_resumeRect.contains(position)) {
-		return Action::Resume;
-	}
-	return Action::None;
-}
-
-QRect ActionBar::rectFor(Action action) const {
-	return (action == Action::Pause) ? _pauseRect : _resumeRect;
+QRect ActionBar::rectFor(Action action, const QRect &rect) const {
+	const auto buttons = buttonRects(rect);
+	return (action == Action::Pause) ? buttons.pause : buttons.resume;
 }
 
 QString ActionBar::textFor(Action action) const {
@@ -376,21 +372,31 @@ bool ActionBar::enabled(Action action) const {
 		: (_pausedCount > 0);
 }
 
-void ActionBar::paintEvent(QPaintEvent *) {
-	// WHY: the rects are only recomputed on resize, and a bar that never
-	// gets one (deferred while hidden) would keep null rects, so both
-	// labels get centered on x = 0 and the buttons hit-test nothing.
-	updateRects();
-	auto p = Painter(this);
-	p.fillRect(rect(), st::downloadsBigBarBg);
+ActionBar::Action ActionBar::actionAt(
+		QPoint position,
+		const QRect &rect) const {
+	const auto buttons = buttonRects(rect);
+	if (buttons.pause.contains(position)) {
+		return Action::Pause;
+	} else if (buttons.resume.contains(position)) {
+		return Action::Resume;
+	}
+	return Action::None;
+}
+
+void ActionBar::paintIn(Painter &p, const QRect &rect) const {
+	p.fillRect(rect, st::downloadsBigBarBg);
 	p.fillRect(
-		QRect(0, height() - st::downloadsBigBarBorder, width(),
+		QRect(
+			rect.x(),
+			rect.y() + rect.height() - st::downloadsBigBarBorder,
+			rect.width(),
 			st::downloadsBigBarBorder),
 		st::downloadsBigBarBorderFg);
 
 	p.setFont(st::downloadsBigBarButtonFont);
 	for (auto action : { Action::Pause, Action::Resume }) {
-		const auto button = rectFor(action);
+		const auto button = rectFor(action, rect);
 		const auto isEnabled = enabled(action);
 		const auto hovered = (_hovered == action) && isEnabled;
 		if (hovered) {
@@ -411,32 +417,25 @@ void ActionBar::paintEvent(QPaintEvent *) {
 	}
 }
 
-void ActionBar::mouseMoveEvent(QMouseEvent *e) {
-	const auto action = actionAt(e->pos());
+void ActionBar::mouseMove(QPoint position, const QRect &rect) {
+	const auto action = actionAt(position, rect);
 	const auto hovered = enabled(action) ? action : Action::None;
 	if (hovered == _hovered) {
 		return;
 	}
 	_hovered = hovered;
-	setCursor((_hovered != Action::None)
-		? style::cur_pointer
-		: style::cur_default);
-	update();
+	_repaint();
 }
 
-void ActionBar::mousePressEvent(QMouseEvent *e) {
-	_pressed = (e->button() == Qt::LeftButton)
-		? actionAt(e->pos())
-		: Action::None;
+void ActionBar::mousePress(QPoint position, const QRect &rect) {
+	_pressed = actionAt(position, rect);
 }
 
-void ActionBar::mouseReleaseEvent(QMouseEvent *e) {
-	const auto action = actionAt(e->pos());
+void ActionBar::mouseRelease(QPoint position, const QRect &rect) {
+	const auto action = actionAt(position, rect);
 	const auto pressed = _pressed;
 	_pressed = Action::None;
-	if (e->button() != Qt::LeftButton
-		|| action != pressed
-		|| !enabled(action)) {
+	if (action != pressed || !enabled(action)) {
 		return;
 	}
 	if (action == Action::Pause) {
@@ -446,13 +445,12 @@ void ActionBar::mouseReleaseEvent(QMouseEvent *e) {
 	}
 }
 
-void ActionBar::leaveEventHook(QEvent *) {
+void ActionBar::leave() {
 	if (_hovered == Action::None) {
 		return;
 	}
 	_hovered = Action::None;
-	setCursor(style::cur_default);
-	update();
+	_repaint();
 }
 
 } // namespace
@@ -461,12 +459,16 @@ namespace {
 
 class InnerWidget final : public Ui::RpWidget {
 public:
-	InnerWidget(QWidget *parent, not_null<Info::Controller*> controller);
+	InnerWidget(
+		QWidget *parent,
+		not_null<Info::Controller*> controller,
+		Fn<void()> resumeAll);
 
 private:
 	int resizeGetHeight(int newWidth) override;
 	void paintEvent(QPaintEvent *e) override;
 	void mouseMoveEvent(QMouseEvent *e) override;
+	void mousePressEvent(QMouseEvent *e) override;
 	void mouseReleaseEvent(QMouseEvent *e) override;
 	void leaveEventHook(QEvent *) override;
 
@@ -486,6 +488,7 @@ private:
 
 	not_null<Info::Controller*> _controller;
 	style::TextStyle _nameStyle;
+	ActionBar _actionBar;
 	std::vector<Row> _rows;
 	base::flat_map<uint64, QImage> _thumbs;
 	int _downloadingBegin = 0;
@@ -505,10 +508,15 @@ private:
 
 InnerWidget::InnerWidget(
 	QWidget *parent,
-	not_null<Info::Controller*> controller)
+	not_null<Info::Controller*> controller,
+	Fn<void()> resumeAll)
 : RpWidget(parent)
 , _controller(controller)
-, _nameStyle(MakeNameStyle()) {
+, _nameStyle(MakeNameStyle())
+, _actionBar(
+	[=] { Core::App().downloadManager().pauseAll(); },
+	std::move(resumeAll),
+	[=] { update(); }) {
 	setMouseTracking(true);
 
 	_rebuildTimer.setCallback([=] { rebuild(); });
@@ -662,6 +670,12 @@ void InnerWidget::buildRows() {
 	_downloadingBegin = int(result.size());
 	_downloadingCount = _downloadingCollapsed ? 0 : activeCount;
 	if (!_downloadingCollapsed) {
+		if (activeCount > 0) {
+			auto bar = Row();
+			bar.kind = Row::Kind::ActionBar;
+			result.push_back(std::move(bar));
+			_downloadingBegin = int(result.size());
+		}
 		for (auto &row : loading) {
 			result.push_back(std::move(row));
 		}
@@ -736,6 +750,15 @@ int InnerWidget::relayout(int newWidth) {
 	const auto thumbSize = st::downloadsBigThumbSize;
 	auto top = 0;
 	for (auto &row : _rows) {
+		if (row.kind == Row::Kind::ActionBar) {
+			row.geometry = QRect(
+				0,
+				top,
+				newWidth,
+				st::downloadsBigBarHeight);
+			top += row.geometry.height();
+			continue;
+		}
 		if (row.small()) {
 			top += st::downloadsBigHeaderTop;
 			row.geometry = QRect(
@@ -925,6 +948,10 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 		if (!row.geometry.intersects(clip)) {
 			continue;
 		}
+		if (row.kind == Row::Kind::ActionBar) {
+			_actionBar.paintIn(p, row.geometry);
+			continue;
+		}
 		const auto hovered = (_hovered == i) && row.hoverable();
 		if (hovered) {
 			p.fillRect(row.geometry, st::downloadsBigRowBgOver);
@@ -1084,13 +1111,32 @@ void InnerWidget::mouseMoveEvent(QMouseEvent *e) {
 	const auto hovered = (index >= 0 && _rows[index].hoverable())
 		? index
 		: -1;
-	if (hovered == _hovered) {
+	if (hovered != _hovered) {
+		_hovered = hovered;
+		updateRow(previous);
+		updateRow(_hovered);
+	}
+	const auto overBar = (index >= 0)
+		&& (_rows[index].kind == Row::Kind::ActionBar);
+	if (overBar) {
+		_actionBar.mouseMove(e->pos(), _rows[index].geometry);
+	} else {
+		_actionBar.leave();
+	}
+	setCursor((overBar ? _actionBar.isHovered() : (_hovered >= 0))
+		? style::cur_pointer
+		: style::cur_default);
+}
+
+void InnerWidget::mousePressEvent(QMouseEvent *e) {
+	if (e->button() != Qt::LeftButton) {
 		return;
 	}
-	_hovered = hovered;
-	setCursor((_hovered >= 0) ? style::cur_pointer : style::cur_default);
-	updateRow(previous);
-	updateRow(_hovered);
+	const auto index = rowAt(e->pos());
+	if (index < 0 || _rows[index].kind != Row::Kind::ActionBar) {
+		return;
+	}
+	_actionBar.mousePress(e->pos(), _rows[index].geometry);
 }
 
 void InnerWidget::mouseReleaseEvent(QMouseEvent *e) {
@@ -1102,12 +1148,17 @@ void InnerWidget::mouseReleaseEvent(QMouseEvent *e) {
 	if (index < 0) {
 		return;
 	}
+	if (_rows[index].kind == Row::Kind::ActionBar) {
+		_actionBar.mouseRelease(e->pos(), _rows[index].geometry);
+		return;
+	}
 	activateRow(index);
 }
 
 void InnerWidget::leaveEventHook(QEvent *) {
 	const auto previous = _hovered;
 	_hovered = -1;
+	_actionBar.leave();
 	setCursor(style::cur_default);
 	updateRow(previous);
 }
@@ -1135,21 +1186,10 @@ Section Memento::section() const {
 
 Widget::Widget(QWidget *parent, not_null<Controller*> controller)
 : ContentWidget(parent, controller) {
-	setInnerWidget(object_ptr<InnerWidget>(this, controller));
-	_actionBar = Ui::CreateChild<ActionBar>(
+	setInnerWidget(object_ptr<InnerWidget>(
 		this,
-		[=] { Core::App().downloadManager().pauseAll(); },
-		[=] { resumeAllPaused(); });
-	// The bar sits in the gap that the scroll area leaves above itself.
-	setScrollTopSkip(st::downloadsBigBarHeight);
-}
-
-void Widget::resizeEvent(QResizeEvent *e) {
-	ContentWidget::resizeEvent(e);
-	if (_actionBar) {
-		_actionBar->setGeometry(0, 0, width(), st::downloadsBigBarHeight);
-		_actionBar->raise();
-	}
+		controller,
+		[=] { resumeAllPaused(); }));
 }
 
 bool Widget::showInternal(not_null<ContentMemento*> memento) {
