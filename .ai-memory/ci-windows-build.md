@@ -191,3 +191,41 @@ error C2059: syntax error: ')'
 **教训**：所有 `[DL]` 埋点都是新写的代码，推之前用
 `grep -rn "DEBUG_LOG([^(]" --include=*.cpp SourceFiles` 扫一遍单括号写法；
 多行写法 `DEBUG_LOG(\n\t\t("...")` 是合法的，扫出来要人工看一眼下一行。
+
+## 2026-11 第五次 CI 编译失败
+
+`ui/chat/message_bubble.h(11)`：
+
+```
+error C2371: 'style::color': redefinition; different basic types
+note: see declaration of 'style::color'  (lib_ui/ui/style/style_core_types.h:31)
+error C2079: 'style::palette_data::_colors' uses undefined struct 'style::color'
+```
+
+为了在 `SimpleBubble` 里加 `const style::color *solidBg`，在头文件顶部写了
+`namespace style { struct color; }` 前向声明。但 `style::color` 不是类，是
+`lib_ui/ui/style/style_core_types.h:31` 的 `using color = internal::Color;`
+类型别名，前向声明必然 C2371。
+
+级联的 C2079 是因为 `styles/palette.h`（生成物）第一行就 include
+`ui/style/style_core.h`，而 PCH `stdafx.h` 已经先 include 过它（`#pragma once`
+生效），于是 `style::color` 停留在那个错误的前向声明上。
+
+**修法**：删掉前向声明，改成 AyuGram includes 块里
+`#include "ui/style/style_core_types.h"`。
+
+**教训**：这个代码库里 `style::` 下的东西大多是**别名**不是类
+（`color` / `font` / `icon` / `string` / `rect` …），一律不能前向声明。
+需要类型就 include `ui/style/style_core_types.h`（生成物 `styles/palette.h`
+自身第一行也带了 `ui/style/style_core.h`，所以直接用 `st::` 颜色时只要
+`#include "styles/palette.h"` 就够）。
+
+同一轮还靠静态扫描提前拦下了三处（CI 没走到，`clipboard_rules.cpp` 从未被编译）：
+
+- `QT_NO_CAST_FROM_ASCII` 生效，`QJsonObject::value("typeRules")` 这类
+  `const char*` 字面量全部要写成 `u"..."_q`；
+- Qt 5.15 的 `QString::size()` / `mid()` / `left()` 是 `int`，
+  和 `qsizetype` 混用会报类型不匹配，统一用 `int` 变量比较；
+- `inline constexpr auto kDefaultJson = R"json(...)json"` 推导出 `const char*`，
+  `sizeof()` 得到的是指针大小（8），截出来只有 8 字节 —— 必须写成
+  `inline constexpr char kDefaultJson[]`。
