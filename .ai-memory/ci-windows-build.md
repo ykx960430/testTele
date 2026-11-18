@@ -229,3 +229,51 @@ error C2079: 'style::palette_data::_colors' uses undefined struct 'style::color'
 - `inline constexpr auto kDefaultJson = R"json(...)json"` 推导出 `const char*`，
   `sizeof()` 得到的是指针大小（8），截出来只有 8 字节 —— 必须写成
   `inline constexpr char kDefaultJson[]`。
+
+## 2026-11 第六次 CI 编译失败（同一次推送的下一轮）
+
+`ayu/utils/clipboard_rules_data.h`：
+
+```
+(4): error C4430: missing type specifier - int assumed
+(4): error C2146: syntax error: missing ';' before identifier 'license'
+(5): error C4430 / (5): error C2059: syntax error: ':'
+(14): error C2026: string too big, trailing characters truncated
+```
+
+两个独立问题：
+
+**1. 文件头注释写错了。** 我按上游 `/* ... */` 的内容逐行写成了 `//`，但只给
+前两级加了 `//`，于是第 4、5 行（`For license and copyright...` 和那行 URL）
+成了裸代码。AyuGram 自己的文件头是纯 `//` 的六行式，见
+`ayu/utils/rc_manager.h`：
+
+```
+// This is the source code of AyuGram for Desktop.
+//
+// We do not and cannot prevent the use of our code,
+// but be respectful and credit the original author.
+//
+// Copyright @Radolyn, 2026
+```
+
+**2. MSVC 单字符串字面量上限 16380 字节。** 内置兜底规则 JSON 有 17213 字节，
+一个 `R"json(...)json"` 装不下，报 C2026（"longer than the limit of 16380
+single-byte characters"，且是**拼接前**的单个字面量限制）。
+
+**修法**：拆成多个相邻 raw string 字面量，靠 C++ 的字符串字面量拼接合成一个数组：
+
+```cpp
+inline constexpr char kDefaultJson[] =
+	R"json(<前半>)json"
+	R"json(<后半>)json";
+```
+
+切点选在 `simplized` 两个超长字符串之间的逗号处，两段 9951 / 7263 字节。
+
+**教训**：
+- 往项目里加带超长文本的头部/常量前，先量字节数；**单个字符串字面量 > 16380
+  字节在 MSVC 直接报错**，要么拆成相邻字面量，要么改成运行时读文件。
+- 新建文件先 `head -8` 对照同目录已有文件的头注释格式。
+- 校验脚本要做的三件事：拼接后与原 JSON 逐字节相同、`JSON.parse` 能过、
+  每个 chunk 的 UTF-8 字节数 < 16380。
