@@ -1399,6 +1399,103 @@ download_progress : ... {}
 | O1 | 视频/图片播放界面下载要默认走「另存为」，让用户改文件名 | `OverlayWidget::downloadMedia()` 原来先判断 `askDownloadPath()` 设置、否则直接落到默认下载目录；现在只保留 `_photo/_document` 判空 + 一行 `saveAs()`（`saveAs()` 内部已处理复制限制、文档/图片/图片视频、以及 `addLoaded` 记录） |
 | O2 | 播放界面点「消息信息」复制到剪贴板并提示「已复制」 | 该区域就是 caption（`Over::Caption` 枚举存在但一直没接）。新增 `OverlayWidget::ensureCaptionCopyLink()`（`LambdaClickHandler` + `crl::guard`），复制 `_caption.toTextForMimeData()` 并复用 `showSaveMsgToastWith(..., tr::lng_text_copied, 1000)`；`updateOver()` 的 caption 分支改为 `_stories ? ensureCaptionExpandLink() : ensureCaptionCopyLink()`（stories 保留原来的展开行为） |
 
+### 第四轮真机反馈（2026-11-18）· 方案已定，待实现
+
+本轮 3 项：① 同一条视频在别的消息里打开仍显示下载按钮；② 复制文本挂脚本转换（规则要跨项目通用 + 可更新）；③ 播放器「消息信息」常驻 + 底部媒体列表通栏。**规划/实现分开，本节是给实现会话的交接。**
+
+#### F4-1 「已下载」状态：两套账本，键不同
+
+**现象**：BigPage「已下载」里已有这条视频，但同一条视频在另一条消息里打开，查看器仍显示下载按钮；在原消息里打开不显示。
+
+**两套判据**：
+
+| 谁 | 判据 | 键 |
+|----|------|----|
+| 查看器 | `_documentMedia->loaded(true)`（`media/view/media_view_overlay_widget.cpp:1743`）→ `!_bytes.isEmpty() \|\| !_owner->filepath(true).isEmpty()`（`data/data_document_media.cpp:380`） | `DocumentData` 的 `_location` / 该 view 的 `_bytes` |
+| BigPage | `DownloadedId`（`data/data_download_manager.cpp:637`）+ `_loaded`（`:652`） | `DownloadId{ document->id, Document }` / `HistoryItem*` |
+
+`filepath(true)` 在 `_location.name().isEmpty()` 时直接返回空（`data/data_document.cpp:1496`），所以 `_location` 是硬门槛。
+
+**谁会写 `_location`**：只有 `DocumentData::save()`（`data/data_document.cpp:1245`）和 `finishLoad()`（`:1062`）。
+**谁不会**：`DownloadManager::addLoaded()`（`data/data_download_manager.cpp:623-682`）和查看器的 `saveAs()`（`media/view/media_view_overlay_widget.cpp:3344-3350`；AyuGram 已把查看器下载强制走 `saveAs()`，见 `:3465-3472`）。
+
+**结论（用户已真机验证）**：`DocumentData` 按 `id + accessHash + dc` 去重 —— **转发**的同一条视频是同一个对象，`_location` 全消息共享，已下载状态天然一致（用户实测如此）。用户遇到的是**重发**：`id` 不同、内容相同，两套账本都没有内容级关联，所以查看器不认。
+
+**决定（两步都做）**：
+
+1. **补账**：`DownloadManager::addLoaded()` 里对 `object.document` 调 `document->setLocation(Core::FileLocation(path))` + `session().local().writeFileLocation(mediaKey(), ...)`（照抄 `data/data_document.cpp:1533-1535` 的写法）；`saveAs()` 同样补一次。这样「查看器里另存过」的文档在其它消息里也认。
+2. **跨文档认内容（内容键）**：给 `DownloadedId` 加一个跟 `document id` 无关的指纹。**用户定的口径：大小（精确字节）+ 时长 ‖ 原始文件名** —— 大小和时长都相同基本就是同一个文件。
+   - `DownloadedId` 已有 `size`（`data/data_download_manager.h:63`），再追加两个字段（加在结构末尾，`:57`）：
+     - `int64 duration = -1`（毫秒，`-1` = 未知；取 `document->hasDuration() ? document->duration() : -1`，`data/data_document.h:211` / `:1937`）
+     - `QString sourceFilename`（取 `document->filename()`，`data/data_document.h:297`）
+   - **匹配规则**：`size` 必须相同，且满足任一条 ——
+     - 双方 `duration >= 0` 且相等；或
+     - 双方 `sourceFilename` 非空且相等。
+     - 「未知」的那一项（`duration < 0` / 文件名为空）**不参与**，避免空值互相误撞。
+   - 新增 `DownloadManager::isDownloaded(const DocumentData*)`：先按 `document->size` 过滤，再比上面两条。列表量级小，先线性扫，真机嫌慢再建索引。
+   - **三个挂载点，缺一个都会漏**：
+     - `OverlayWidget::updateControls()` 的卡片下载判定（`media/view/media_view_overlay_widget.cpp:1743`）→ `loaded(true) || isDownloaded(_document)`；
+     - `OverlayWidget::computeSaveButtonVisible()` 的文档分支（`:1669`，现在是 `_document->filepath(true).isEmpty()`）→ 追加 `&& !isDownloaded(_document)`；
+     - BigPage「已下载」列表（可选）也按 `isDownloaded` 认重发副本。
+   - **图片不涉及**：查看器里图片没有这个下载按钮 —— 卡片分支要求 `_document`（`:1716`），`computeSaveButtonVisible()` 的照片分支是 `_photo->hasVideo()` 语义（`:1667`）。
+   - 不哈希：未下载的文档取不到内容，哈希只能覆盖「已下载过的那一侧」，且要读整个文件。
+   - 序列化：`DownloadedId` 走 `QDataStream`（`deserialize()` 在 `data/data_download_manager.cpp:1744`，字段顺序 `:1787-1794`），两个新字段**追加在 `path` 之后** + `!stream.atEnd()` 守卫，否则旧版本存的数据会错位（见 AGENTS.md）。
+   - 填写点：`addLoaded()`（`:623`）从 `object.document` 取；`generateEntry()`（`:1404`，磁盘恢复的假条目）`duration = -1`、`sourceFilename = QFileInfo(path).fileName()`（假条目的 `filename()` 就是保存时的文件名，可能已被用户改过，只强不弱）。
+
+#### F4-2 复制文本转换：规则外置成 JSON
+
+**两个挂载点**（用户明确只要这两个）：
+
+| 场景 | 位置 | 现状 |
+|------|------|------|
+| 播放器点「消息信息」 | `OverlayWidget::ensureCaptionCopyLink()`（`media/view/media_view_overlay_widget.cpp:8347-8363`） | 复制 `_caption.toTextForMimeData().expanded`（已处理 `\r` / `\n`） |
+| 消息列表复制 | `HistoryInner::copySelectedText()`（`history/history_inner_widget.cpp:4073-4085`）、`copyContextText()`（`:4179-4192`） | 走 `Iv::SetRichBlocksClipboard(text, richBlocks, session)` |
+
+- AyuGram 存档列表那两处（`ayu/ui/message_history/history_inner.cpp:1401-1403`、`:1430-1434`）是 `TextUtilities::SetClipboardText` 直拷，同一条路径，可顺带。
+- ⚠️ **格式会丢**：`copySelectedText` 的 rich 块偏移是按原文算的，改了文本就错位。**用户已确认接受**：这个复制功能就是拿来给文件重命名的，不需要保留富文本。决定：**转换走纯文本**（`TextUtilities::SetClipboardText(TextForMimeData::Simple(text))`）。
+
+**规则外置（跨项目通用 + 可更新）**：
+
+- ❌ C++ 里跑 JS：QJSEngine 依赖 qtdeclarative，CI 不构建（`cmake/external/qt/package.cmake:78-79` 只在 `OPTIONAL_COMPONENTS`）。
+- ❌ 构建期把 `GTRule.js` 生成成头文件：运行时不能更新。
+- ✅ **决定**：规则存 JSON，新增 `Ayu::ClipboardRules`（`ayu/utils/clipboard_rules.h/.cpp`）。
+  - 路径：portable / 可执行目录下的 `ayu_clipboard_rules.json`；缺失时用内置默认（等价当前 `GTRule.js`）。
+  - 更新：`QFileSystemWatcher` 监听该文件，变化即重载 —— **不是轮询**。
+  - 跨项目：坚果云里 `GTRule.js` 仍是源，另存一份同内容 JSON（其它项目读同一份 JSON）；实现会话先写一次性转换脚本，之后手工同步。
+  - 加载失败 / JSON 非法：保留旧规则，不弹错误框。
+
+**转换目标 = 「文本 → 文件名」**（用户已确认：复制就是为了重命名文件）。所以复制钩子**不套 `handleName()`** —— `handleName()` 假设输入已经是 `[标签]名字.后缀`（`GT重命名.js:72-102`），而消息正文没有这个结构，套上去只会把正文切碎。决定：
+
+- 新增 `Ayu::ClipboardRules::toFilename(const QString &text)`：繁简转换 → 替换规则 → 去表情 → 去链接 → 去 `@人名` → 压掉换行/多余空白 → 删 Windows 非法字符 `\ / : * ? " < > |` → 限长（默认 80 字符；`#标签` 默认保留，可关）。输出**不含扩展名**（扩展名跟着下载的文件走）。
+- `handleName()` 仍按原计划移植成 `toCleanName()`，只服务「复制文件名」场景（`AddCopyFilename`，`history/view/history_view_context_menu.cpp:2699`；注意 `:2707-2712` 现在显式排除了视频，放宽需单独确认）。
+- 两者共用原子步骤：`removeEmoji` / `replaceWord` / `takeType` / `simplized`。
+- 规则（启用哪些步骤、限长、是否保留 `#标签`）全部来自那份 JSON。
+
+#### F4-3 播放器两项优化
+
+**(1) 「消息信息」在所有媒体上都显示**
+
+- 「消息信息」= **caption**（本文件 `:1400` 的 O2 已定案）。
+- 根因：`refreshCaption()`（`media/view/media_view_overlay_widget.cpp:4106`）在 `_message` 带 instant-view 媒体 / webpage / poll 时返回**按 item 的文本**（`:4112-4143`），且 `caption.text.isEmpty()` 时**直接 return**（`:4145-4151`），不回退到 `_message->translatedText()`。所以「只有第一个 item 带 caption」时就表现为“只在第一个文件显示”。
+- 决定：把 `:4145` 的提前 return 改为**先回退** —— per-item 文本为空时用 `_message->translatedText()`，仍为空才走原来的 `_streamed` 时间戳清理 + return。
+- **截图已确认就是 caption**：截图里底部居中的深色卡片（「异域风情巨根美男 / Xanzo精选 / 第一辑 / #帅哥 …」）就是 `_caption`，右侧带引号图标。按上面的回退改即可。
+
+**(2) 底部媒体列表改通栏居中**
+
+- 根因：`_groupThumbsAvailableWidth` 不是按窗口宽度算，而是 `width() - 2 * bottomSkip`（`:1908-1912`），`bottomSkip` = max(`_dateNav` 右缘, `_headerNav` 右缘) + `mediaviewCaptionMargin`（`:1903-1907`）—— **底栏那行字（发送者名 + 日期）/ 顶栏文件名有多宽，缩略图区就被压多窄**。
+- `ComputeThumbsLimit()`（`media/view/media_view_group_thumbs.cpp:220-230`）：`limit = (availableWidth - currentWidth - 2 * singleWidth) / (2 * singleWidth)`。`availableWidth ≈ 300` → 1 张，`≈ 450` → 2 张，与「只能显示 1~2 张」吻合。
+- 决定：**把两个宽度拆开**。
+  - 新增 `_captionAvailableWidth`，沿用现在 `bottomSkip` 的算法；`refreshCaptionGeometry()` 的 `captionWidth`（`:1981-1984`）改用它，caption 宽度不变。
+  - `_groupThumbsAvailableWidth` 改为 `width() - 2 * <新边距>`，边距加在 `media/view/media_view.style`（**禁止硬编码像素**）；`_groupThumbsLeft` 的居中公式（`:1913`）不变。
+  - 效果：以 1000px 窗口为例，缩略图从 1~2 张变成约 5 张，仍整体居中。
+- 连带检查（都跟着 `_groupThumbsLeft` 走，**不用改**）：`_groupThumbsRect`（`:4331-4335`）、`paintGroupThumbs`（`:6397-6404`）、`getState`（`:8250`）、`refreshGroupThumbs`（`:4256-4295`）。
+
+#### 用户已确认（2026-11-18）
+
+1. F4-1：现象是**重发**（转发天然共享，已实测）；内容键用「大小 + 文件名」，不哈希。
+2. F4-2：**接受丢失富文本格式** —— 复制就是为了重命名文件，转换目标是「文本 → 文件名」。
+3. F4-3(1)：截图确认是 **caption**。
+
 ### Phase 3：集成测试 ⏳ 待开发
 
 | # | 任务 | 文件 | 估计 |
@@ -1798,9 +1895,14 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
   下载中导出为空；侧边栏按钮置底、固定操作条、来源会话、已完成倒序、中文文案（`Tr(en, zh)`）
 - 第二轮反馈：封面缩略图、层宽 392→780px、下载中可折叠、已完成项多行完整文件名 + 大小·来源 + 点击跳转、
   行右侧暂停/继续图标、暂停任务保留在「下载中」组；播放器下载默认另存为 + 点消息信息复制提示
+- 第三轮反馈（`24bbf42` 出包后）：方案已定待实现，见「第三轮真机反馈」
+- 第四轮反馈（2026-11-18）：方案已定待实现，见「第四轮真机反馈」—— F4-1「已下载」两套账本、
+  F4-2 复制文本转换（规则外置 JSON + 可更新）、F4-3 播放器消息信息常驻 + 底部媒体列表通栏
 
 未做：Phase 2-C.5 右键菜单。
-下一步：推 CI 出包验证本轮全部改动（包含新样式符号 `st::downloadsBigLayerWidth`，必须重新 configure 生成 `style_info_downloads_big.h`）；然后做右键菜单；再做 Phase 3 集成测试。
+下一步：先读「第四轮真机反馈」的「待确认」3 项并向用户确认，再按 F4-1 → F4-3 → F4-2 的顺序做
+（F4-2 要新增 JSON 规则文件，放最后）；每批推 CI 一轮。
+注意：本轮新样式符号若加在 `media/view/media_view.style`，同样要重新 configure 生成对应 `style_info_*.h`。
 ```
 
 ---
