@@ -1666,7 +1666,9 @@ bool OverlayWidget::computeSaveButtonVisible() const {
 	} else if (_photo) {
 		return _photo->hasVideo() || _photoMedia->loaded();
 	} else if (_document) {
-		return _document->filepath(true).isEmpty() && !_document->loading();
+		return _document->filepath(true).isEmpty()
+			&& !_document->loading()
+			&& !Core::App().downloadManager().isDownloaded(_document);
 	} else {
 		return false;
 	}
@@ -1733,14 +1735,16 @@ void OverlayWidget::updateControls() {
 			_docDownload->hide();
 			_docSaveAs->hide();
 			_docCancel->hide();
-			if (!_documentMedia->loaded(true)) {
+			if (!_documentMedia->loaded(true)
+				&& !Core::App().downloadManager().isDownloaded(_document)) {
 				DocumentSaveClickHandler::Save(
 					fileOrigin(),
 					_document,
 					DocumentSaveClickHandler::Mode::ToCacheOrFile);
 			}
 		} else {
-			if (_documentMedia->loaded(true)) {
+			if (_documentMedia->loaded(true)
+				|| Core::App().downloadManager().isDownloaded(_document)) {
 				_docDownload->hide();
 				_docSaveAs->moveToLeft(_docRect.x() + 2 * st::mediaviewFilePadding + st::mediaviewFileIconSize, _docRect.y() + st::mediaviewFilePadding + st::mediaviewFileLinksTop);
 				_docSaveAs->show();

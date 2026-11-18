@@ -1440,7 +1440,7 @@ download_progress : ... {}
    - **图片不涉及**：查看器里图片没有这个下载按钮 —— 卡片分支要求 `_document`（`:1716`），`computeSaveButtonVisible()` 的照片分支是 `_photo->hasVideo()` 语义（`:1667`）。
    - 不哈希：未下载的文档取不到内容，哈希只能覆盖「已下载过的那一侧」，且要读整个文件。
    - 序列化：`DownloadedId` 走 `QDataStream`（`deserialize()` 在 `data/data_download_manager.cpp:1744`，字段顺序 `:1787-1794`），两个新字段**追加在 `path` 之后** + `!stream.atEnd()` 守卫，否则旧版本存的数据会错位（见 AGENTS.md）。
-   - 填写点：`addLoaded()`（`:623`）从 `object.document` 取；`generateEntry()`（`:1404`，磁盘恢复的假条目）`duration = -1`、`sourceFilename = QFileInfo(path).fileName()`（假条目的 `filename()` 就是保存时的文件名，可能已被用户改过，只强不弱）。
+   - 填写点：`addLoaded()`（`:623`）从 `object.document` 取；`resolveRequestsFinished()`（`:1413`，导入列表里消息还在的条目）从真实 `document` 取；`generateEntry()`（`:1441`，消息已删 / 磁盘恢复的假条目）`duration = -1`、`sourceFilename = QFileInfo(path).fileName()`（就是保存时的文件名，可能已被用户改过，只强不弱）。
 
 #### F4-2 复制文本转换：规则外置成 JSON
 

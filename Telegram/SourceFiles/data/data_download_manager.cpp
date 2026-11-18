@@ -635,8 +635,9 @@ void DownloadManager::addLoaded(
 	const auto item = object.item;
 	auto &data = sessionData(item);
 
-	const auto id = object.document
-		? DownloadId{ object.document->id, DownloadType::Document }
+	const auto document = object.document;
+	const auto id = document
+		? DownloadId{ document->id, DownloadType::Document }
 		: DownloadId{ object.photo->id, DownloadType::Photo };
 	data.downloaded.push_back({
 		.download = id,
@@ -645,8 +646,20 @@ void DownloadManager::addLoaded(
 		.size = size,
 		.itemId = item->fullId(),
 		.peerAccessHash = PeerAccessHash(item->history()->peer),
+		.duration = (document && document->hasDuration())
+			? document->duration()
+			: -1,
+		.sourceFilename = document ? document->filename() : QString(),
 		.object = std::make_unique<DownloadObject>(object),
 	});
+	if (document) {
+		// WHY: the viewer never writes the document location itself.
+		const auto location = Core::FileLocation(path);
+		document->setLocation(location);
+		item->history()->session().local().writeFileLocation(
+			document->mediaKey(),
+			location);
+	}
 	_loaded.emplace(item);
 	_loadedAdded.fire(&data.downloaded.back());
 
@@ -1231,6 +1244,30 @@ int DownloadManager::loadedCount() const {
 	return result;
 }
 
+bool DownloadManager::isDownloaded(const DocumentData *document) const {
+	if (!document || document->size <= 0) {
+		return false;
+	}
+	const auto duration = document->hasDuration()
+		? document->duration()
+		: int64(-1);
+	const auto &filename = document->filename();
+	for (const auto &[session, data] : _sessions) {
+		for (const auto &id : data.downloaded) {
+			if (id.size != document->size) {
+				continue;
+			}
+			if (duration >= 0 && id.duration == duration) {
+				return true;
+			}
+			if (!filename.isEmpty() && id.sourceFilename == filename) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 auto DownloadManager::pausedList() const
 -> ranges::any_view<const PausedDownloadDescriptor*,
 		ranges::category::input> {
@@ -1379,6 +1416,10 @@ void DownloadManager::resolveRequestsFinished(
 				.document = document,
 				.photo = photo,
 			});
+			i->duration = (document && document->hasDuration())
+				? document->duration()
+				: -1;
+			i->sourceFilename = document ? document->filename() : QString();
 			_loaded.emplace(item);
 		}
 		_loadedAdded.fire(&*i);
@@ -1407,6 +1448,8 @@ void DownloadManager::generateEntry(
 	Expects(!id.object);
 
 	const auto info = QFileInfo(id.path);
+	// WHY: a restored entry has no real document, only the saved name.
+	id.sourceFilename = info.fileName();
 	const auto document = session->data().document(
 		base::RandomValue<DocumentId>(),
 		0, // accessHash
@@ -1712,11 +1755,13 @@ Fn<std::optional<QByteArray>()> DownloadManager::serializator(
 			+ sizeof(quint32) // size
 			+ sizeof(quint64) // itemId.peer
 			+ sizeof(qint64) // itemId.msg
-			+ sizeof(quint64); // peerAccessHash
+			+ sizeof(quint64) // peerAccessHash
+			+ sizeof(qint64); // duration
 		auto size = sizeof(qint32) // count
 			+ count * constant;
 		for (const auto &id : data.downloaded) {
 			size += Serialize::stringSize(id.path);
+			size += Serialize::stringSize(id.sourceFilename);
 		}
 		result.reserve(size);
 
@@ -1733,7 +1778,9 @@ Fn<std::optional<QByteArray>()> DownloadManager::serializator(
 				<< quint64(id.itemId.peer.value)
 				<< qint64(id.itemId.msg.bare)
 				<< quint64(id.peerAccessHash)
-				<< id.path;
+				<< id.path
+				<< qint64(id.duration)
+				<< id.sourceFilename;
 		}
 		stream.device()->close();
 
@@ -1786,6 +1833,14 @@ std::vector<DownloadedId> DownloadManager::deserialize(
 				&& downloadType != DownloadType::Photo)) {
 			return {};
 		}
+		auto duration = qint64(-1);
+		auto sourceFilename = QString();
+		if (!stream.atEnd()) {
+			stream >> duration >> sourceFilename;
+			if (stream.status() != QDataStream::Ok) {
+				return {};
+			}
+		}
 		result.push_back({
 			.download = {
 				.objectId = downloadObjectId,
@@ -1796,6 +1851,8 @@ std::vector<DownloadedId> DownloadManager::deserialize(
 			.size = int64(size),
 			.itemId = { PeerId(itemIdPeer), MsgId(itemIdMsg) },
 			.peerAccessHash = peerAccessHash,
+			.duration = duration,
+			.sourceFilename = sourceFilename,
 		});
 	}
 	return result;

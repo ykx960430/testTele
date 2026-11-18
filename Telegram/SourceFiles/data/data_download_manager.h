@@ -61,6 +61,9 @@ struct DownloadedId {
 	int64 size = 0;
 	FullMsgId itemId;
 	uint64 peerAccessHash = 0;
+	// WHY: a resent copy has a different id, so match by content instead.
+	int64 duration = -1;
+	QString sourceFilename;
 
 	std::unique_ptr<DownloadObject> object;
 };
@@ -187,6 +190,7 @@ public:
 		Main::Session *onlyInSession = nullptr) const;
 	[[nodiscard]] int pausedCount() const;
 	[[nodiscard]] int loadedCount() const;
+	[[nodiscard]] bool isDownloaded(const DocumentData *document) const;
 	[[nodiscard]] auto pausedList() const
 		-> ranges::any_view<const PausedDownloadDescriptor*,
 			ranges::category::input>;
