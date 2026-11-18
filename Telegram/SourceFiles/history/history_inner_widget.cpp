@@ -141,6 +141,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/features/filters/filters_cache_controller.h"
 #include "ayu/ui/context_menu/context_menu.h"
 #include "ayu/ui/settings/filters/edit_filter.h"
+#include "ayu/utils/clipboard_rules.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "data/data_document_media.h"
 
@@ -408,6 +409,8 @@ HistoryInner::HistoryInner(
 	[=] { return window()->isActiveWindow(); })
 , _scrollDateCheck([this] { scrollDateCheck(); })
 , _scrollDateHideTimer([this] { scrollDateHideByTimer(); }) {
+	Ayu::ClipboardRules::StartWatcher();
+
 	_history->delegateMixin()->setCurrent(this);
 	if (_migrated) {
 		_migrated->delegateMixin()->setCurrent(this);
@@ -4078,10 +4081,8 @@ void HistoryInner::copySelectedText() {
 	if (text.empty()) {
 		return;
 	}
-	Iv::SetRichBlocksClipboard(
-		text,
-		getSelectedRichBlocks(),
-		&session());
+	TextUtilities::SetClipboardText(TextForMimeData::Simple(
+		Ayu::ClipboardRules::ToFilename(text.expanded)));
 }
 
 void HistoryInner::editCaptionUploadLayer(not_null<HistoryItem*> item) {
@@ -4178,16 +4179,16 @@ void HistoryInner::saveContextGif(FullMsgId itemId) {
 
 void HistoryInner::copyContextText(FullMsgId itemId) {
 	if (const auto item = session().data().message(itemId)) {
-		if (!showCopyRestriction(item)) {
-			if (const auto group = session().data().groups().find(item)) {
-				TextUtilities::SetClipboardText(HistoryGroupText(group));
-			} else {
-				Iv::SetRichBlocksClipboard(
-					HistoryItemText(item),
-					HistoryItemRichBlocks(item),
-					&session());
+			if (!showCopyRestriction(item)) {
+				const auto text = [&] {
+					if (const auto group = session().data().groups().find(item)) {
+						return HistoryGroupText(group);
+					}
+					return HistoryItemText(item);
+				}();
+				TextUtilities::SetClipboardText(TextForMimeData::Simple(
+					Ayu::ClipboardRules::ToFilename(text.expanded)));
 			}
-		}
 	}
 }
 

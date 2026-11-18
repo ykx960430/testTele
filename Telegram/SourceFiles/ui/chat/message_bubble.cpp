@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/image/image_prepare.h"
 #include "ui/chat/chat_style.h"
 #include "ui/chat/torn_edge.h"
+#include "ui/style/style_core.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_style.h"
 
@@ -285,7 +286,7 @@ void PaintPatternBubble(QPainter &p, const SimpleBubble &args) {
 
 void PaintSolidBubble(QPainter &p, const SimpleBubble &args) {
 	const auto &st = args.st->messageStyle(args.outbg, args.selected);
-	const auto &bg = st.msgBg;
+	const auto &bg = args.solidBg ? *args.solidBg : st.msgBg;
 	const auto sh = (args.rounding.bottomRight == Corner::None)
 		? nullptr
 		: &st.msgShadow;
@@ -361,7 +362,9 @@ void FinishBubblePatternOnMain(not_null<BubblePattern*> pattern) {
 }
 
 void PaintBubble(QPainter &p, const SimpleBubble &args) {
-	if (UsePatternBubble(args)) {
+	if (args.solidBg) {
+		PaintSolidBubble(p, args);
+	} else if (UsePatternBubble(args)) {
 		PaintPatternBubble(p, args);
 	} else {
 		PaintSolidBubble(p, args);

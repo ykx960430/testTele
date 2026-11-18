@@ -129,6 +129,9 @@ set(ayugram_files
         ayu/utils/windows_utils.h
         ayu/utils/rc_manager.cpp
         ayu/utils/rc_manager.h
+        ayu/utils/clipboard_rules.cpp
+        ayu/utils/clipboard_rules.h
+        ayu/utils/clipboard_rules_data.h
         ayu/ui/ayu_logo.cpp
         ayu/ui/ayu_logo.h
         ayu/ui/toasts.cpp

@@ -71,11 +71,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_dialogs.h"
 #include "styles/style_iv.h"
 #include "styles/style_polls.h"
+#include "ui/style/style_core.h"
 
 // AyuGram includes
 #include "ayu/ayu_settings.h"
 #include "ayu/features/filters/filters_controller.h"
 #include "ayu/features/message_shot/message_shot.h"
+#include "core/application.h"
+#include "data/data_document.h"
+#include "data/data_download_manager.h"
 #include "styles/style_ayu_icons.h"
 
 
@@ -1935,6 +1939,12 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 		if (from && (_fromNameVersion < from->nameVersion())) {
 			fromNameUpdated(g.width());
 		}
+		const auto downloadedVideo = [&] {
+			const auto doc = media ? media->getDocument() : nullptr;
+			return doc
+				&& (doc->isVideoMessage() || doc->isVideoFile())
+				&& Core::App().downloadManager().isDownloaded(doc);
+		}();
 		const auto simple = Ui::SimpleBubble{
 			.st = context.st,
 			.geometry = g,
@@ -1943,6 +1953,7 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 			.outerWidth = width(),
 			.selected = context.selected(),
 			.outbg = context.outbg,
+			.solidBg = downloadedVideo ? &st::msgFile2Bg : nullptr,
 			.rounding = countBubbleRounding(messageRounding),
 		};
 		const auto rich = const_cast<Message*>(this)->richpage();

@@ -7,6 +7,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+namespace style {
+struct color;
+} // namespace style
+
 namespace Ui {
 
 class ChatTheme;
@@ -113,6 +117,7 @@ struct SimpleBubble {
 	bool selected = false;
 	bool shadowed = true;
 	bool outbg = false;
+	const style::color *solidBg = nullptr;
 	BubbleRounding rounding;
 };
 

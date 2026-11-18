@@ -138,6 +138,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/ayu_settings.h"
 #include "ayu/ayu_state.h"
 #include "ayu/features/streamer_mode/streamer_mode.h"
+#include "ayu/utils/clipboard_rules.h"
 
 
 namespace Media {
@@ -695,6 +696,8 @@ OverlayWidget::OverlayWidget()
 	updateSpeedBoost();
 	return isSpeedBoostShown();
 }) {
+	Ayu::ClipboardRules::StartWatcher();
+
 	_layerBg->setStyleOverrides(&st::groupCallBox, &st::groupCallLayerBox);
 	_layerBg->setHideByBackgroundClick(true);
 
@@ -4153,8 +4156,22 @@ void OverlayWidget::refreshCaption() {
 	}();
 	// WHY: instant-view / webpage / poll captions are per item, so a message
 	// with a caption on one item only would look captionless on the others.
+	// The message text is empty for such messages, so the first caption of
+	// the same instant-view is the fallback.
 	if (caption.text.isEmpty() && _message) {
 		caption = _message->translatedText();
+		if (caption.text.isEmpty()) {
+			const auto media = _message->Get<
+				HistoryMessageMediaForInstantView>();
+			if (media) {
+				for (const auto &candidate : media->captions) {
+					if (!candidate.text.isEmpty()) {
+						caption = candidate;
+						break;
+					}
+				}
+			}
+		}
 	}
 	if (caption.text.isEmpty()) {
 		if (_streamed && _streamed->controls) {
@@ -8357,11 +8374,10 @@ ClickHandlerPtr OverlayWidget::ensureCaptionExpandLink() {
 ClickHandlerPtr OverlayWidget::ensureCaptionCopyLink() {
 	if (!_captionCopyLink) {
 		const auto copy = crl::guard(_widget, [=] {
-			// WHY: a caption is copied as one line, so breaks became spaces.
-			auto text = _caption.toTextForMimeData().expanded;
-			text.replace(QChar(u'\r'), QString());
-			text.replace(QChar(u'\n'), QString(u' '));
-			TextUtilities::SetClipboardText(TextForMimeData::Simple(text));
+			// WHY: the caption is copied to be used as a file name.
+			const auto text = _caption.toTextForMimeData().expanded;
+			TextUtilities::SetClipboardText(TextForMimeData::Simple(
+				Ayu::ClipboardRules::ToFilename(text)));
 			showSaveMsgToastWith(
 				QString(),
 				{ tr::lng_text_copied(tr::now) },

@@ -125,6 +125,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/ayu_settings.h"
 #include "ayu/features/forward/ayu_forward.h"
 #include "ayu/ui/context_menu/context_menu.h"
+#include "ayu/utils/clipboard_rules.h"
 
 
 namespace HistoryView {
@@ -2700,24 +2701,23 @@ void AddCopyFilename(
 		not_null<Ui::PopupMenu*> menu,
 		not_null<DocumentData*> document,
 		Fn<bool()> showCopyRestrictionForSelected) {
-	const auto filenameToCopy = [&] {
+	const auto filename = [&]() -> QString {
 		if (document->isAudioFile()) {
-			return TextForMimeData().append(
-				Ui::Text::FormatSongNameFor(document).string());
+			return Ui::Text::FormatSongNameFor(document).string();
 		} else if (document->sticker()
 			|| document->isAnimation()
 			|| document->isVideoMessage()
 			|| document->isVideoFile()
 			|| document->isVoiceMessage()) {
-			return TextForMimeData();
-		} else {
-			return TextForMimeData().append(document->filename());
+			return QString();
 		}
+		return document->filename();
 	}();
-	if (!filenameToCopy.empty()) {
+	if (!filename.isEmpty()) {
 		menu->addAction(tr::lng_context_copy_filename(tr::now), [=] {
 			if (!showCopyRestrictionForSelected()) {
-				TextUtilities::SetClipboardText(filenameToCopy);
+				TextUtilities::SetClipboardText(TextForMimeData::Simple(
+					Ayu::ClipboardRules::ToCleanName(filename)));
 			}
 		}, &st::menuIconCopy);
 	}

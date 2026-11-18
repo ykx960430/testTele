@@ -12,6 +12,7 @@
 #include "api/api_attached_stickers.h"
 #include "ayu/data/messages_storage.h"
 #include "ayu/ui/message_history/history_section.h"
+#include "ayu/utils/clipboard_rules.h"
 #include "base/call_delayed.h"
 #include "base/unixtime.h"
 #include "base/platform/base_platform_info.h"
@@ -268,7 +269,9 @@ InnerWidget::InnerWidget(
 	  _emptyText(
 		  st::historyAdminLogEmptyWidth
 		  - st::historyAdminLogEmptyPadding.left()
-		  - st::historyAdminLogEmptyPadding.left()) {
+		  st::historyAdminLogEmptyPadding.left()) {
+	Ayu::ClipboardRules::StartWatcher();
+
 	Window::ChatThemeValueFromPeer(
 		controller,
 		peer
@@ -1399,7 +1402,9 @@ void InnerWidget::copyContextImage(not_null<PhotoData*> photo) {
 }
 
 void InnerWidget::copySelectedText() {
-	TextUtilities::SetClipboardText(getSelectedText());
+	const auto text = getSelectedText();
+	TextUtilities::SetClipboardText(TextForMimeData::Simple(
+		Ayu::ClipboardRules::ToFilename(text.expanded)));
 }
 
 void InnerWidget::showStickerPackInfo(not_null<DocumentData*> document) {
@@ -1429,7 +1434,8 @@ void InnerWidget::openContextGif(FullMsgId itemId) {
 
 void InnerWidget::copyContextText(FullMsgId itemId) {
 	if (const auto item = session().data().message(itemId)) {
-		TextUtilities::SetClipboardText(HistoryItemText(item));
+		TextUtilities::SetClipboardText(TextForMimeData::Simple(
+			Ayu::ClipboardRules::ToFilename(HistoryItemText(item).expanded)));
 	}
 }
 
