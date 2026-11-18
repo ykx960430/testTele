@@ -1909,11 +1909,12 @@ void OverlayWidget::resizeCenteredControls() {
 		_dateNav.left() + _dateNav.width(),
 		_headerNav.left() + _headerNav.width())
 		+ st::mediaviewCaptionMargin.width();
-	_groupThumbsAvailableWidth = std::max(
+	_captionAvailableWidth = std::max(
 		width() - 2 * bottomSkip,
 		st::msgMinWidth
 		+ st::mediaviewCaptionPadding.left()
 		+ st::mediaviewCaptionPadding.right());
+	_groupThumbsAvailableWidth = width() - 2 * st::mediaviewGroupMargin;
 	_groupThumbsLeft = (width() - _groupThumbsAvailableWidth) / 2;
 	refreshGroupThumbs();
 	_groupThumbsTop = _groupThumbs ? (height() - _groupThumbs->height()) : 0;
@@ -1982,7 +1983,7 @@ void OverlayWidget::refreshCaptionGeometry() {
 	const auto captionWidth = _stories
 		? storiesCaptionWidth
 		: std::min(
-			(_groupThumbsAvailableWidth
+			(_captionAvailableWidth
 				- st::mediaviewCaptionPadding.left()
 				- st::mediaviewCaptionPadding.right()),
 			_caption.maxWidth());
@@ -4109,7 +4110,7 @@ void OverlayWidget::refreshFromLabel() {
 
 void OverlayWidget::refreshCaption() {
 	_caption = Ui::Text::String();
-	const auto caption = [&] {
+	auto caption = [&] {
 		if (_stories) {
 			return StripQuoteEntities(_stories->captionText());
 		} else if (_message) {
@@ -4150,6 +4151,11 @@ void OverlayWidget::refreshCaption() {
 		}
 		return TextWithEntities();
 	}();
+	// WHY: instant-view / webpage / poll captions are per item, so a message
+	// with a caption on one item only would look captionless on the others.
+	if (caption.text.isEmpty() && _message) {
+		caption = _message->translatedText();
+	}
 	if (caption.text.isEmpty()) {
 		if (_streamed && _streamed->controls) {
 			_streamed->controls->setTimestamps({});

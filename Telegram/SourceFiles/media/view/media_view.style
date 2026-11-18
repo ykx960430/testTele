@@ -292,6 +292,7 @@ mediaviewGroupPadding: margins(0px, 14px, 0px, 14px);
 mediaviewGroupHeight: 80px;
 mediaviewGroupWidth: 56px;
 mediaviewGroupWidthMax: 160px;
+mediaviewGroupMargin: 12px;
 mediaviewGroupSkip: 3px;
 mediaviewGroupSkipCurrent: 12px;
 

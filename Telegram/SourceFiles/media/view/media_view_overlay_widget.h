@@ -694,6 +694,7 @@ private:
 
 	std::unique_ptr<GroupThumbs> _groupThumbs;
 	QRect _groupThumbsRect;
+	int _captionAvailableWidth = 0;
 	int _groupThumbsAvailableWidth = 0;
 	int _groupThumbsLeft = 0;
 	int _groupThumbsTop = 0;
