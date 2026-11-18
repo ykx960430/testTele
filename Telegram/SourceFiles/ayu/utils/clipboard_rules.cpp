@@ -69,21 +69,21 @@ std::vector<std::pair<QString, std::vector<QString>>> ReadWordMap(
 
 Rules Parse(const QJsonObject &object) {
 	Rules rules;
-	rules.typeRules = ReadWordMap(object.value("typeRules").toObject());
-	rules.replaceRule = ReadWordMap(object.value("replaceRule").toObject());
-	const auto simplified = object.value("simplized").toArray();
+	rules.typeRules = ReadWordMap(object.value(u"typeRules"_q).toObject());
+	rules.replaceRule = ReadWordMap(object.value(u"replaceRule"_q).toObject());
+	const auto simplified = object.value(u"simplized"_q).toArray();
 	if (simplified.size() == 2) {
 		rules.traditional = simplified.at(0).toString();
 		rules.simplified = simplified.at(1).toString();
 	}
-	const auto options = object.value("options").toObject();
-	for (const auto &step : options.value("steps").toArray()) {
+	const auto options = object.value(u"options"_q).toObject();
+	for (const auto &step : options.value(u"steps"_q).toArray()) {
 		if (const auto name = step.toString(); !name.isEmpty()) {
 			rules.steps.push_back(name);
 		}
 	}
-	rules.maxLength = options.value("maxLength").toInt(80);
-	rules.keepHashtags = options.value("keepHashtags").toBool(true);
+	rules.maxLength = options.value(u"maxLength"_q).toInt(80);
+	rules.keepHashtags = options.value(u"keepHashtags"_q).toBool(true);
 	return rules;
 }
 
@@ -115,7 +115,9 @@ const Rules &Fallback() {
 	static const Rules result = [] {
 		QJsonParseError error{};
 		const auto doc = QJsonDocument::fromJson(
-			QByteArray::fromRawData(kDefaultJson, sizeof(kDefaultJson) - 1),
+			QByteArray::fromRawData(
+				kDefaultJson,
+				int(sizeof(kDefaultJson) - 1)),
 			&error);
 		return (error.error == QJsonParseError::NoError && doc.isObject())
 			? Parse(doc.object())
@@ -222,24 +224,30 @@ QStringList TakeType(
 	return result;
 }
 
+QString RemoveByRule(const QString &text, const QString &rule) {
+	auto result = text;
+	result.remove(QRegularExpression(rule));
+	return result;
+}
+
 QString RemoveLinks(const QString &text) {
-	return QString(text).remove(QRegularExpression(uR"((https?://|www\.)\S+\.?\b)"_q));
+	return RemoveByRule(text, uR"((https?://|www\.)\S+\.?\b)"_q);
 }
 
 QString RemoveMentions(const QString &text) {
-	return QString(text).remove(QRegularExpression(uR"(@[\w]+)"_q));
+	return RemoveByRule(text, uR"(@[\w]+)"_q);
 }
 
 QString RemoveHashtags(const QString &text) {
-	return QString(text).remove(QRegularExpression(uR"(#[^\s]+)"_q));
+	return RemoveByRule(text, uR"(#[^\s]+)"_q);
 }
 
 QString CollapseWhitespace(const QString &text) {
-	return QString(text).remove(QRegularExpression(uR"(\s+)"_q)).trimmed();
+	return RemoveByRule(text, uR"(\s+)"_q).trimmed();
 }
 
 QString RemoveIllegalChars(const QString &text) {
-	return QString(text).remove(QRegularExpression(uR"([\/:*?"<>|])"_q));
+	return RemoveByRule(text, uR"([\/:*?"<>|])"_q);
 }
 
 QString ToBaseName(const QString &text, const Rules &rules) {
@@ -346,11 +354,13 @@ QString ToCleanName(const QString &text) {
 	if (close > 0) {
 		tags = text.mid(1, close - 1).split(' ', Qt::KeepEmptyParts);
 	}
+	const auto size = text.size();
 	const auto baseStart = (close >= 0) ? close + 1 : 0;
-	const auto baseLength = (dot >= 0)
-		? dot - baseStart
-		: std::max(text.size() - baseStart - 1, qsizetype(0));
-	auto result = ToBaseName(text.mid(baseStart, baseLength), rules);
+	const auto stop = (dot >= 0)
+		? dot
+		: (size > baseStart ? size - 1 : baseStart);
+	const auto length = (stop > baseStart) ? (stop - baseStart) : 0;
+	auto result = ToBaseName(text.mid(baseStart, length), rules);
 	auto typeTags = TakeType(tags, result, rules);
 	if (typeTags.empty()) {
 		return result + suffix;

@@ -11,7 +11,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/image/image_prepare.h"
 #include "ui/chat/chat_style.h"
 #include "ui/chat/torn_edge.h"
-#include "ui/style/style_core.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_style.h"
 

@@ -7,9 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-namespace style {
-struct color;
-} // namespace style
+// AyuGram includes
+#include "ui/style/style_core_types.h"
+
 
 namespace Ui {
 
