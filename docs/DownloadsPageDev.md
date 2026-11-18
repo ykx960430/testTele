@@ -1883,7 +1883,8 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 ## 十二、下一会话开场白（预写）
 
 ```
-你好，我是 CatPaw（妙手），继续 AyuGramDesktop 下载系统重构项目。
+你好，我是 CatPaw（妙手），继续 AyuGramDesktop 下载系统重构项目。先读 docs/DownloadsPageDev.md
+的「第四轮真机反馈」和本节，再动手。本机不能编译，一律走 github/dev 的 CI。
 
 已完成：
 - Phase 1（暂停/续传核心 + 序列化 + 退出行为），tag v0.1.0-phase1-pause-resume
@@ -1891,18 +1892,28 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 - Phase 2-B（BigPage 真实内容：分组 + 行模型 + 进度条 + 点击恢复/打开文件夹）
 - Phase 2-C.1-4 + 2-C.6（侧边栏下载入口 + 角标 + 跳转 BigPage；顶栏 ⋮ 菜单：全部暂停/继续 + 导出/导入下载列表；文案全量本地化）
 - 退出不丢任务：`Account::writeLocationsForce()` + `DownloadManager::flushPaused()`
-- 第一轮真机反馈修复：`pauseAll`/`pauseOne` 迭代器失效崩溃、重启丢下载中任务、另存为文件名、
-  下载中导出为空；侧边栏按钮置底、固定操作条、来源会话、已完成倒序、中文文案（`Tr(en, zh)`）
-- 第二轮反馈：封面缩略图、层宽 392→780px、下载中可折叠、已完成项多行完整文件名 + 大小·来源 + 点击跳转、
-  行右侧暂停/继续图标、暂停任务保留在「下载中」组；播放器下载默认另存为 + 点消息信息复制提示
-- 第三轮反馈（`24bbf42` 出包后）：方案已定待实现，见「第三轮真机反馈」
-- 第四轮反馈（2026-11-18）：方案已定待实现，见「第四轮真机反馈」—— F4-1「已下载」两套账本、
-  F4-2 复制文本转换（规则外置 JSON + 可更新）、F4-3 播放器消息信息常驻 + 底部媒体列表通栏
+- 第一 / 二 / 三轮真机反馈修复（详见文档对应小节）
+- 第四轮 F4-1（commit `8d8b204`，CI run 79 已成功出包）：
+  - `DownloadManager::isDownloaded(const DocumentData*)`（data_download_manager.cpp）按
+    「大小精确相等 +（双方都有时长且相等 || 双方原始文件名非空且相等）」认领重发副本；
+  - `addLoaded()` 补写 `document->setLocation()` + `writeFileLocation(mediaKey(), ...)`；
+  - `DownloadedId` 加 `duration` / `sourceFilename`，序列化追加在流末尾 + `!stream.atEnd()` 守卫；
+  - overlay 三处判定改为 `loaded(true) || isDownloaded(_document)`。
+  - **真机未验**：要在红米 K30 Pro 上确认「重发同一条视频 → 另一条消息打开不再显示下载按钮」。
 
-未做：Phase 2-C.5 右键菜单。
-下一步：先读「第四轮真机反馈」的「待确认」3 项并向用户确认，再按 F4-1 → F4-3 → F4-2 的顺序做
-（F4-2 要新增 JSON 规则文件，放最后）；每批推 CI 一轮。
-注意：本轮新样式符号若加在 `media/view/media_view.style`，同样要重新 configure 生成对应 `style_info_*.h`。
+未做：Phase 2-C.5 右键菜单；F4-1 真机验证；F4-3；F4-2。
+
+本轮任务：F4-3 播放器两项优化（方案已定，见「第四轮真机反馈」F4-3 节）：
+1. caption 常驻 —— `refreshCaption()`（media_view_overlay_widget.cpp）里 per-item 文本为空时
+   先回退 `_message->translatedText()`，仍为空才走原来的 return；
+2. 底部媒体列表通栏居中 —— 新增 `_captionAvailableWidth` 沿用原 `bottomSkip` 算法给 caption 用，
+   `_groupThumbsAvailableWidth` 改成 `width() - 2 * <新边距>`，边距加在 `media/view/media_view.style`，
+   `_groupThumbsLeft` 居中公式不变。禁止硬编码像素。
+
+之后：F4-2（复制文本转换 + 规则外置 JSON + QFileSystemWatcher 热重载），放最后。
+每批推 CI 一轮（`git push github dev`），推之前做静态自查。
+注意：新样式符号加在 `media/view/media_view.style` → 生成的头文件是 `styles/style_media_view.h`
+（生成器用 `NAME_WLE`，路径被剃掉），CI 是全新 configure，天然会重新生成。
 ```
 
 ---
