@@ -215,6 +215,7 @@ constexpr auto kSeekTimeMs = 5 * crl::time(1000);
 constexpr auto kSeekTimeMsLong = 10 * crl::time(1000);
 constexpr auto kFrameStepFallbackFps = 30.;
 constexpr auto kFrameStepThrottleMs = crl::time(150);
+constexpr auto kDropdownShowDelay = 1 * crl::time(1000);
 
 // macOS OpenGL renderer fails to render larger texture
 // even though it reports that max texture size is 16384.
@@ -8215,7 +8216,9 @@ bool OverlayWidget::updateOverState(Over newState) {
 	bool result = true;
 	if (_over != newState) {
 		if (!_stories && newState == Over::More && !_ignoringDropdown) {
-			_dropdownShowTimer.callOnce(0);
+			// WHY: the pointer usually just sweeps past the corner button, so
+			// the menu opens on every pass; the timer is cancelled on leave.
+			_dropdownShowTimer.callOnce(kDropdownShowDelay);
 		} else {
 			_dropdownShowTimer.cancel();
 		}

@@ -2015,12 +2015,24 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 `PrepareCornerPixmaps(radius, bg, sh)`；`PaintSolidBubble()` 的 `fillCorner`
 在 `solidBg` 非空时改用它。
 
-#### 下一轮（用户已提，未实现）
+#### F7-2 复制去空白太激进（本轮修复）
 
-- 复制文本去空白太激进：现在 `CollapseWhitespace()` 用 `\s+` 直接把**所有**
-  空白（含换行）删掉。期望：只 trim 首尾 + 连续空白压成 1 个空格。
-- 媒体预览右下角「更多」（三个点）按钮误触：鼠标一划过就弹菜单，
-  希望延迟数秒、确认鼠标仍在按钮上才弹。
+原来 `CollapseWhitespace()` 用 `RemoveByRule(text, R"(\s+)")`，把**所有**空白
+（含换行）直接删掉，多词文本会被粘成一片。
+
+改成 `text.replace(QRegularExpression(R"(\s+)"), " ").trimmed()`：
+连续空白压成 1 个空格，再 trim 首尾。规则 JSON 的 `steps` 名字不变，
+改完即时生效。
+
+#### F7-3 媒体预览「更多」按钮误触（本轮修复）
+
+`OverlayWidget::updateOverState()` 在 `_over` 变成 `Over::More` 时调
+`_dropdownShowTimer.callOnce(0)`，也就是零延迟——鼠标一划过就弹菜单。
+
+改成 `callOnce(kDropdownShowDelay)`（`1 * crl::time(1000)`，定义在
+`media_view_overlay_widget.cpp` 匿名 namespace）。鼠标移出时 `updateOverState()`
+走 `else` 分支 `cancel()`，所以「停留 1 秒才弹」的判断是自动的，
+不需要额外的离屏检测。
 
 ---
 
@@ -2055,10 +2067,13 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 - [x] 第七轮真机复测（run 86 包）：#4 底色、去 `#话题`、规则热重载 通过；
       #3 单击复制无效是因为 run 86 不含 F6-1（见「第七轮真机反馈」）
 - [x] F7-1 已下载气泡圆角露出 msgBg → `SolidBgCorners()` 缓存纯色圆角贴图
+      （run 90 = `715f5f4` 出包，四角已全绿）
+- [x] F7-2 复制去空白太激进 → `CollapseWhitespace()` 改为「连续空白压 1 个 + trim」
+- [x] F7-3 媒体预览「更多」按钮误触 → `_dropdownShowTimer.callOnce(1000)`，
+      移出时由 `updateOverState()` 自动 `cancel()`
 - [x] include 链条固化到 `.ai-memory/ci-windows-build.md`
-- [ ] 下一轮两项：复制去空白改「trim + 连续空白压 1 个」；
-      媒体预览「更多」按钮加悬停延迟
-- [ ] **真机复测第六轮 4 项 + 2 条新需求**（需 run 89 或之后的包）
+- [ ] **真机复测**：单击消息正文复制（run 89+ 才有）、复制结果空白正常、
+      「更多」按钮停留 1 秒才弹
 - [ ] Phase 2-C.5 右键菜单（暂停/恢复/取消/在文件夹打开）
 - [ ] Phase 3 集成测试
 
@@ -2113,19 +2128,21 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
     写到 exe 目录，之后热重载。
 - 第六轮真机复测（run 86 包，2026-11-19）：#4 底色、去 `#话题`、规则热重载 通过；
   #3 单击复制无效 → 原因是 run 86 根本不含 F6-1，要 run 89+ 才能测。
-- 第七轮修复（F7-1，待出包）：已下载气泡四角露出 msgBg → `message_bubble.cpp`
-  新增 `SolidBgCorners()`，`solidBg` 非空时改用按颜色缓存的圆角贴图。
+- 第七轮修复（F7-1，run 90 = `715f5f4` 出包，四角已全绿）：已下载气泡四角露出
+  msgBg → `message_bubble.cpp` 新增 `SolidBgCorners()`，`solidBg` 非空时改用
+  按颜色缓存的圆角贴图。
+- 第八轮修复（F7-2 / F7-3，待出包）：
+  - 复制去空白太激进 → `CollapseWhitespace()` 改为「连续空白压 1 个 + trim」；
+  - 媒体预览「更多」按钮误触 → `_dropdownShowTimer.callOnce(1000)`。
 - include 链条已固化到 `.ai-memory/ci-windows-build.md`（`History` /
   `Data::Session` / `DownloadManager` / `Groups` 各自该补哪个头）。
 
-未做：Phase 2-C.5 右键菜单；下一轮两项（复制去空白、媒体预览「更多」按钮悬停延迟）；
-Phase 3 集成测试。
+未做：Phase 2-C.5 右键菜单；Phase 3 集成测试。
 
 本轮任务：**先推 CI 出包（`git push github dev`），真机复测**：
-1. 已下载视频气泡的四个圆角也是绿色，不再露出深蓝 msgBg；
-2. 若 run 89 已出：单击消息正文复制（悬停光标应为手型）、相册任一下载整组变色。
-
-下一轮再做：复制去空白改「trim + 连续空白压 1 个」；媒体预览「更多」按钮加悬停延迟。
+1. 单击消息正文的文字能复制（run 89 起才有，悬停光标应为手型），拖选仍可用；
+2. 复制结果里多个词之间是 1 个空格，首尾无空白；
+3. 媒体预览右下「更多」按钮要停留约 1 秒才弹菜单，划过不再弹。
 
 注意：
 - 每批推 CI 一轮，推之前做静态自查（括号/引号/原始字符串平衡、逐 hunk 复核删除行、
