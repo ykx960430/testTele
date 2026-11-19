@@ -4154,12 +4154,22 @@ void OverlayWidget::refreshCaption() {
 		}
 		return TextWithEntities();
 	}();
-	// WHY: instant-view / webpage / poll captions are per item, so a message
-	// with a caption on one item only would look captionless on the others.
-	// The message text is empty for such messages, so the first caption of
-	// the same instant-view is the fallback.
+	// WHY: instant-view / webpage / poll captions are per item and an album
+	// keeps its text on a single part, so the other items would look
+	// captionless: fall back to the group text, then the first iv caption.
 	if (caption.text.isEmpty() && _message) {
 		caption = _message->translatedText();
+		if (caption.text.isEmpty() && _session) {
+			const auto group = _session->data().groups().find(_message);
+			if (group) {
+				for (const auto &item : group->items) {
+					if (item != _message && !item->emptyText()) {
+						caption = item->translatedText();
+						break;
+					}
+				}
+			}
+		}
 		if (caption.text.isEmpty()) {
 			const auto media = _message->Get<
 				HistoryMessageMediaForInstantView>();
