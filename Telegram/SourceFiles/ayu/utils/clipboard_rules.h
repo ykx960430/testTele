@@ -12,6 +12,8 @@
 #include <utility>
 #include <vector>
 
+class HistoryItem;
+
 namespace Ayu::ClipboardRules {
 
 struct Rules {
@@ -31,6 +33,11 @@ void StartWatcher();
 
 // Text -> file name, without extension, keeping the "[tags]" prefix.
 [[nodiscard]] QString ToFilename(const QString &text);
+
+// Copy a message text (album aware) to the clipboard.
+void CopyItemTextToClipboard(
+	not_null<HistoryItem*> item,
+	bool asGroup = true);
 
 // Existing file name -> cleaned name (same as handleName() in GT重命名.js).
 [[nodiscard]] QString ToCleanName(const QString &text);

@@ -191,6 +191,7 @@ public:
 	[[nodiscard]] int pausedCount() const;
 	[[nodiscard]] int loadedCount() const;
 	[[nodiscard]] bool isDownloaded(const DocumentData *document) const;
+	[[nodiscard]] bool isDownloadedItem(const FullMsgId &itemId) const;
 	[[nodiscard]] auto pausedList() const
 		-> ranges::any_view<const PausedDownloadDescriptor*,
 			ranges::category::input>;

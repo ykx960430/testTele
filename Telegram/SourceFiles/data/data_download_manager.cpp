@@ -1268,6 +1268,20 @@ bool DownloadManager::isDownloaded(const DocumentData *document) const {
 	return false;
 }
 
+bool DownloadManager::isDownloadedItem(const FullMsgId &itemId) const {
+	if (!itemId) {
+		return false;
+	}
+	for (const auto &[session, data] : _sessions) {
+		for (const auto &id : data.downloaded) {
+			if (id.itemId == itemId) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 auto DownloadManager::pausedList() const
 -> ranges::any_view<const PausedDownloadDescriptor*,
 		ranges::category::input> {

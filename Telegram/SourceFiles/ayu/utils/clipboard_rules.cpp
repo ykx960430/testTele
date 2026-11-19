@@ -7,6 +7,11 @@
 #include "ayu/utils/clipboard_rules.h"
 #include "ayu/utils/clipboard_rules_data.h"
 
+#include "data/data_groups.h"
+#include "history/history_item.h"
+#include "history/history_item_text.h"
+#include "ui/text/text_utilities.h"
+
 #include <QChar>
 #include <QCoreApplication>
 #include <QDir>
@@ -53,7 +58,21 @@ QString ResolvePath() {
 			return candidate;
 		}
 	}
-	return QString();
+	// WHY: the rules are meant to be edited without rebuilding, so the
+	// defaults are seeded next to the executable on first run.
+	return exeDir + u"/ayu_clipboard_rules.json"_q;
+}
+
+void EnsureFile(const QString &path) {
+	if (path.isEmpty() || QFile::exists(path)) {
+		return;
+	}
+	QFile file(path);
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+		return;
+	}
+	file.write(kDefaultJson, int(sizeof(kDefaultJson) - 1));
+	file.close();
 }
 
 std::vector<std::pair<QString, std::vector<QString>>> ReadWordMap(
@@ -89,7 +108,7 @@ Rules Parse(const QJsonObject &object) {
 		}
 	}
 	rules.maxLength = options.value(u"maxLength"_q).toInt(80);
-	rules.keepHashtags = options.value(u"keepHashtags"_q).toBool(true);
+	rules.keepHashtags = options.value(u"keepHashtags"_q).toBool(false);
 	return rules;
 }
 
@@ -98,6 +117,7 @@ void Reload() {
 	if (path.isEmpty()) {
 		return;
 	}
+	EnsureFile(path);
 	QFile file(path);
 	if (!file.open(QIODevice::ReadOnly)) {
 		return;
@@ -297,17 +317,10 @@ QString ApplySteps(const QString &text, const Rules &rules) {
 			result = CollapseWhitespace(result);
 		} else if (step == u"removeIllegalChars"_q) {
 			result = RemoveIllegalChars(result);
-		} else if (step == u"removeHashtags"_q) {
-			if (!rules.keepHashtags) {
-				result = CollapseWhitespace(RemoveHashtags(result));
-			}
 		} else if (step == u"truncate"_q
 			&& result.size() > rules.maxLength) {
 			result = result.left(rules.maxLength).trimmed();
 		}
-	}
-	if (!rules.keepHashtags) {
-		result = CollapseWhitespace(RemoveHashtags(result));
 	}
 	return result;
 }
@@ -362,11 +375,36 @@ QString ToFilename(const QString &text) {
 	if (result.isEmpty() && baseStart < text.size()) {
 		result = CollapseWhitespace(RemoveIllegalChars(text));
 	}
+	// WHY: a hashtag can carry the type tag, so they are stripped only
+	// after the tags have been read off the text.
 	const auto typeTags = TakeType(tags, result, rules);
+	if (!rules.keepHashtags) {
+		result = CollapseWhitespace(RemoveHashtags(result));
+	}
 	if (typeTags.isEmpty()) {
 		return result;
 	}
 	return u"["_q + typeTags.join(u' ') + u"]"_q + result;
+}
+
+void CopyItemTextToClipboard(
+		not_null<HistoryItem*> item,
+		bool asGroup) {
+	const auto text = [&] {
+		if (asGroup) {
+			const auto group = item->history()->owner().groups().find(
+				item.get());
+			if (group) {
+				const auto groupText = HistoryGroupText(group);
+				if (!groupText.empty()) {
+					return groupText.expanded;
+				}
+			}
+		}
+		return HistoryItemText(item).expanded;
+	}();
+	TextUtilities::SetClipboardText(
+		TextForMimeData::Simple(ToFilename(text)));
 }
 
 QString ToCleanName(const QString &text) {
@@ -391,6 +429,9 @@ QString ToCleanName(const QString &text) {
 	const auto length = (stop > baseStart) ? (stop - baseStart) : 0;
 	auto result = ToBaseName(text.mid(baseStart, length), rules);
 	auto typeTags = TakeType(tags, result, rules);
+	if (!rules.keepHashtags) {
+		result = CollapseWhitespace(RemoveHashtags(result));
+	}
 	if (typeTags.empty()) {
 		return result + suffix;
 	}

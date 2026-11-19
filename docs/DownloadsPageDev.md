@@ -1563,6 +1563,78 @@ run 84 = `679ac2b`（CI success）。用户真机测出 4 点，逐条拿代码�
 - 保持用户已确认的口径：只标识**视频**，**整个气泡**换 `st::msgFile2Bg` 底色
   （`:1958`），图片不标识。
 
+### 第六轮真机反馈（2026-11-19，run 86 包）· 已定位并修复
+
+run 86 = `2c1b23f`（CI success）。用户确认 F5-1、F5-2 通过，F5-3、F5-4 无效果，
+另提两条新需求。逐条拿代码定位如下。
+
+#### F6-1 单击消息正文没有触发复制（F5-3 的残留）
+
+- 现象：聊天窗口单击消息正文的文字没有复制；查看器 caption 上单击可以。
+- 根因：**功能缺失，不是触发区域失效**。查看器 caption 有专门的点击处理器
+  `OverlayWidget::ensureCaptionCopyLink()`（`media/view/media_view_overlay_widget.cpp:8384-8399`），
+  由 `updateOver()` 在 `_captionRect.contains(pos)` 且 `textState.link` 为空时挂上；
+  而聊天消息正文**没有任何点击处理器** —— `Message::getStateText()`
+  （`history/view/history_view_message.cpp:4782`）的普通文本分支只返回
+  `TextState(item, text().getState(...))`，`link` 为空就是空操作（Telegram 里
+  单击正文本就是这个行为）。
+- 修法：
+  - 新增 `MessageTextCopyClickHandler`（`history_view_message.cpp:364-382`），
+    左键点击调用 `Message::copyTextToClipboard()`；
+  - `Message::getStateText()` 普通文本分支在 `link` 为空时挂上它，并把
+    `cursor` 置 `None`（`:4981-4986`），真实链接不受影响；
+  - `Message::allowTextSelectionByHandler()` 放行该 handler（`:5906-5908`），
+    否则 `HistoryInner::mouseActionStart()` 会因 `pressed` 直接进 `PrepareDrag`，
+    拖选正文就没了。
+- 文本获取统一走 `Ayu::ClipboardRules::CopyItemTextToClipboard()`
+  （`ayu/utils/clipboard_rules.cpp:390-406`）；`HistoryInner::copyContextText()`
+  和右键菜单「复制文本」改为调用它，不再各写一份。
+
+#### F6-2 已下载视频背景色仍不生效（F5-4 的残留）
+
+- 现象：新下载和历史落盘两种都测过，视频气泡背景和别的消息一致；BigPage 显示「已完成」。
+- 排查：渲染链路逐段验证是通的 —— `Message::draw()` → `Ui::SimpleBubble::solidBg`
+  （`history_view_message.cpp:2003`）→ `PaintBubble`（`ui/chat/message_bubble.cpp:363-371`）
+  → `PaintSolidBubble`（`:286-312`）→ `fillRect(rect, st::msgFile2Bg)`，
+  `msgFile2Bg = #5fbe67`（`lib_ui/ui/colors.palette:398`）。所以断点在**判据**。
+- 判据的两个薄弱点：
+  1. `DownloadManager::isDownloaded()`（`data/data_download_manager.cpp:1247-1269`）
+     按 `size` +（`duration` 或 `sourceFilename`）做内容匹配；视频没有 filename，
+     只要 `size` 或 `duration` 对不上就漏。
+  2. 视图层 `media->getDocument()` 依赖具体媒体视图；相册是
+     `GroupedMedia::getDocument()`（`history/view/media/history_view_media_grouped.cpp:918-920`），
+     返回的是**主 part** 的文档 —— 下载的是组内非主 part 就判不到。
+- 修法（`history/view/history_view_message.cpp:1967-1995`）：改用**数据层**判据：
+  - `entry->media()->document()` 直接取文档，绕开视图层；
+  - 新增 `DownloadManager::isDownloadedItem(FullMsgId)`
+    （`data/data_download_manager.cpp:1271-1284`），按持久化的
+    `DownloadedId::itemId` 精确匹配（`deserialize()` 会读回
+    `itemIdPeer` / `itemIdMsg`，历史记录同样有效）；
+  - 判据扩为 `!filepath().isEmpty() || isDownloaded(doc) || isDownloadedItem(...)`；
+  - **相册整组**：组内任一 part 命中即整条变色（`Data::Groups::find()` 遍历
+    `group->items`）。
+- 口径确认：历史下载、后续新下载都认；一条消息内任一媒体已下载 → 整条变色。
+
+#### F6-3 新需求：复制前去掉 `#话题` 并折叠空格
+
+- 口径：**先提取标签，再去 `#xx`**。`typeRules` 的关键词本身可能带 `#`
+  （如 `#fist`），顺序反了就提取不到。
+- 修法（`ayu/utils/clipboard_rules.cpp`）：
+  - `ApplySteps()` 移除 `removeHashtags` 分支和末尾兜底，hashtag 不再被提前清掉；
+  - `ToFilename()` / `ToCleanName()` 改为在 `TakeType()` **之后**再
+    `CollapseWhitespace(RemoveHashtags(result))`（`:378-384`、`:432-434`）；
+  - `keepHashtags` 默认值改为 `false`（`clipboard_rules_data.h` 与 `Parse()`）。
+
+#### F6-4 新需求：规则数据外置
+
+- 口径：`typeRules` / `replaceRule` / 繁简字表（js 的 `charPYStr` / `ftPYStr`）
+  不应打进 exe，用户改完不用重新出包。
+- 方案（用户选 A）：exe 内保留一份默认数据作「种子」，首次运行把
+  `ayu_clipboard_rules.json` 写到 exe 目录（`EnsureFile()`，
+  `ayu/utils/clipboard_rules.cpp:66-77`），之后读该文件并由
+  `QFileSystemWatcher` 热重载（`StartWatcher()` 已有）。用户改 exe 旁边的
+  json 即时生效，无需重新打包。
+
 ### Phase 3：集成测试 ⏳ 待开发
 
 | # | 任务 | 文件 | 估计 |
@@ -1938,7 +2010,10 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 - [x] 第四轮反馈：F4-1 重发副本内容键（`DownloadManager::isDownloaded`）、F4-2 复制转换 + JSON 规则 + 热重载、F4-3 播放器 caption 常驻 + 底部列表通栏（CI run 84 出包）
 - [x] 第五轮反馈根因定位与修复（#2 复制标签 / #3 复制空剪贴板 / #4 已下载底色；#1 caption 由 run 85 修复，见「第五轮真机反馈」）
 - [x] 推 CI 出包（run 86 = `2c1b23f`，success，产物 `Telegram-Windows-Debug`）
-- [ ] **真机复测第五轮 4 项**
+- [x] 第五轮真机复测：#1、#2 通过；#3、#4 无效果（见「第六轮真机反馈」）
+- [x] 第六轮反馈修复：F6-1 单击消息正文复制、F6-2 数据层判据 + 相册整组变色、
+      F6-3 复制前去 `#话题`、F6-4 规则数据外置（种子 + 热重载）
+- [ ] **真机复测第六轮 4 项 + 2 条新需求**
 - [ ] Phase 2-C.5 右键菜单（暂停/恢复/取消/在文件夹打开）
 - [ ] Phase 3 集成测试
 
@@ -1954,7 +2029,7 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 
 ```
 你好，我是 CatPaw（妙手），继续 AyuGramDesktop 下载系统重构项目。先读 docs/DownloadsPageDev.md
-的「第五轮真机反馈」和本节，再动手。本机不能编译，一律走 github/dev 的 CI。
+的「第六轮真机反馈」和本节，再动手。本机不能编译，一律走 github/dev 的 CI。
 
 已完成：
 - Phase 1（暂停/续传核心 + 序列化 + 退出行为），tag v0.1.0-phase1-pause-resume
@@ -1979,13 +2054,27 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
     `ListWidget::copySelectedText()` 删掉 `getSelectedRichBlocks()`，统一走 `ToFilename`；
   - #4 已下载视频没底色 → `Message::draw()` 判据追加 `!doc->filepath().isEmpty()`。
 
-未做：Phase 2-C.5 右键菜单；F4-1 / 第五轮 4 项的真机验证；Phase 3 集成测试。
+- 第五轮真机复测：#1 caption、#2 复制标签 通过；#3、#4 无效（原因见第六轮）。
+- 第六轮修复（待出包）：
+  - F6-1 单击消息正文复制 → 新增 `MessageTextCopyClickHandler`，
+    `Message::getStateText()` 在正文 `link` 为空时挂上，并在
+    `allowTextSelectionByHandler()` 放行以保住拖选；
+  - F6-2 已下载视频底色 → 判据改数据层（`entry->media()->document()`）+
+    新增 `DownloadManager::isDownloadedItem(FullMsgId)` 按持久化 itemId 匹配 +
+    相册组内任一 part 命中即整条变色；
+  - F6-3 复制前去 `#话题` → `TakeType()` 之后再 `RemoveHashtags` +
+    `CollapseWhitespace`，`keepHashtags` 默认 false；
+  - F6-4 规则外置 → `EnsureFile()` 首次运行把 `ayu_clipboard_rules.json`
+    写到 exe 目录，之后热重载。
 
-本轮任务：**先推 CI 出包（`git push github dev`），真机复测第五轮 4 项**：
-1. 相册里第 2 个及以后的媒体也显示「消息信息」（正文 / 第一个媒体的 caption）；
-2. 复制文本带 `[标签]` 前缀（标签由规则 JSON 的 `typeRules` 决定）；
-3. 消息列表右键「复制文本」一定复制出东西（相册、纯文本、只有链接的消息）；
-4. 聊天里已下载的视频整个气泡换 `st::msgFile2Bg` 底色。
+未做：Phase 2-C.5 右键菜单；第六轮 4 项 + 2 条新需求的真机验证；Phase 3 集成测试。
+
+本轮任务：**先推 CI 出包（`git push github dev`），真机复测第六轮 4 项 + 2 条新需求**：
+1. 聊天窗口单击消息正文的文字 → 复制（拖选仍然可用）；
+2. 历史下载 / 后续新下载的视频，整个气泡换 `st::msgFile2Bg` 底色；
+   相册里下载了任意一个 → 整组都变色；
+3. 复制出来的文件名不含 `#话题`，但仍带 `[标签]` 前缀；
+4. exe 旁边出现 `ayu_clipboard_rules.json`，改它不用重新出包（改完不用重启）。
 
 注意：
 - 每批推 CI 一轮，推之前做静态自查（括号/引号/原始字符串平衡、逐 hunk 复核删除行、

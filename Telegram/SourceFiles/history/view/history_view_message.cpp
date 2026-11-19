@@ -16,9 +16,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/click_handler_types.h" // ClickHandlerContext
 #include "core/ui_integration.h"
 #include "core/update_checker.h"
-#include "history/view/history_view_cursor_state.h"
+#include "history/history_item.h"
 #include "history/history_item_components.h"
 #include "history/history_item_helpers.h"
+#include "history/history_item_text.h"
+#include "history/view/history_view_cursor_state.h"
 #include "history/view/media/history_view_media_generic.h"
 #include "history/view/media/history_view_web_page.h"
 #include "history/view/media/history_view_suggest_decision.h"
@@ -49,6 +51,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 //#include "ui/round_rect.h"
 #include "data/components/factchecks.h"
 #include "data/components/sponsored_messages.h"
+#include "data/data_groups.h"
 #include "data/data_session.h"
 #include "data/data_user.h"
 #include "data/data_chat.h"
@@ -76,6 +79,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/ayu_settings.h"
 #include "ayu/features/filters/filters_controller.h"
 #include "ayu/features/message_shot/message_shot.h"
+#include "ayu/utils/clipboard_rules.h"
 #include "data/data_document.h"
 #include "data/data_download_manager.h"
 #include "styles/palette.h"
@@ -355,6 +359,25 @@ public:
 private:
 	const Fn<void(ClickContext)> _callback;
 	const std::optional<PreparedLink> _link;
+};
+
+class MessageTextCopyClickHandler final : public ClickHandler {
+public:
+	explicit MessageTextCopyClickHandler(not_null<Message*> owner)
+	: _weak(base::make_weak(owner.get())) {
+	}
+
+	void onClick(ClickContext context) const override {
+		if (context.button != Qt::LeftButton) {
+			return;
+		}
+		if (const auto owner = _weak.get()) {
+			owner->copyTextToClipboard();
+		}
+	}
+
+private:
+	base::weak_ptr<Message> _weak;
 };
 
 void ApplyRevealGradient(
@@ -1938,14 +1961,36 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 		if (from && (_fromNameVersion < from->nameVersion())) {
 			fromNameUpdated(g.width());
 		}
-		// WHY: isDownloaded() only knows what this build downloaded, so a
-		// video saved earlier needs the local file check as well.
+		// WHY: an album keeps one media per item, so the group counts as
+		// downloaded as soon as any part is; and the item id match covers
+		// files saved before the content fields were recorded.
 		const auto downloadedVideo = [&] {
-			const auto doc = media ? media->getDocument() : nullptr;
-			return doc
-				&& (doc->isVideoMessage() || doc->isVideoFile())
-				&& (!doc->filepath().isEmpty()
-					|| Core::App().downloadManager().isDownloaded(doc));
+			const auto manager = &Core::App().downloadManager();
+			const auto partDownloaded = [&](not_null<HistoryItem*> entry) {
+				const auto doc = entry->media()
+					? entry->media()->document()
+					: nullptr;
+				return doc
+					&& (doc->isVideoMessage() || doc->isVideoFile())
+					&& (!doc->filepath().isEmpty()
+						|| manager->isDownloaded(doc)
+						|| manager->isDownloadedItem(entry->fullId()));
+			};
+			const auto entry = data();
+			if (partDownloaded(entry)) {
+				return true;
+			}
+			const auto group = entry->history()->owner().groups().find(
+				entry.get());
+			if (!group) {
+				return false;
+			}
+			for (const auto &part : group->items) {
+				if (partDownloaded(part)) {
+					return true;
+				}
+			}
+			return false;
 		}();
 		const auto simple = Ui::SimpleBubble{
 			.st = context.st,
@@ -4722,6 +4767,18 @@ bool Message::getStateViaBotIdInfo(
 	return false;
 }
 
+void Message::copyTextToClipboard() const {
+	Ayu::ClipboardRules::CopyItemTextToClipboard(data());
+}
+
+ClickHandlerPtr Message::textCopyHandler() const {
+	if (!_textCopyHandler) {
+		_textCopyHandler = std::make_shared<MessageTextCopyClickHandler>(
+			const_cast<Message*>(this));
+	}
+	return _textCopyHandler;
+}
+
 bool Message::getStateText(
 		QPoint point,
 		QRect &trect,
@@ -4921,6 +4978,11 @@ bool Message::getStateText(
 			&& IsRippleLink(outResult->link)
 			&& !text().linkRangeFor(outResult->link).empty()) {
 			recordLinkRipplePoint(point, trect.topLeft());
+		} else if (!outResult->link) {
+			// WHY: a click on the body should copy it, like the caption in
+			// the media viewer, but a real link keeps its own action.
+			outResult->link = textCopyHandler();
+			outResult->cursor = CursorState::None;
 		}
 		return true;
 	}
@@ -5840,6 +5902,9 @@ bool Message::allowTextSelectionByHandler(
 		if (media->allowTextSelectionByHandler(handler)) {
 			return true;
 		}
+	}
+	if (dynamic_cast<MessageTextCopyClickHandler*>(handler.get())) {
+		return true;
 	}
 	if (dynamic_cast<Ui::Text::BlockquoteClickHandler*>(handler.get())) {
 		return true;

@@ -281,6 +281,8 @@ public:
 		const ClickHandlerPtr &handler) const override;
 	[[nodiscard]] bool allowTextSelectionByHandler(
 		const ClickHandlerPtr &handler) const override;
+	void copyTextToClipboard() const;
+	[[nodiscard]] ClickHandlerPtr textCopyHandler() const;
 	[[nodiscard]] int infoWidth() const override;
 	[[nodiscard]] int bottomInfoFirstLineWidth() const override;
 	[[nodiscard]] bool bottomInfoIsWide() const override;
@@ -530,6 +532,7 @@ private:
 
 	mutable std::unique_ptr<RightAction> _rightAction;
 	mutable ClickHandlerPtr _fastReplyLink;
+	mutable ClickHandlerPtr _textCopyHandler;
 	mutable std::unique_ptr<ViewButton> _viewButton;
 	std::unique_ptr<TopicButton> _topicButton;
 	mutable std::unique_ptr<LinkRipple> _linkRipple;
