@@ -271,7 +271,8 @@ QString RemoveHashtags(const QString &text) {
 }
 
 QString CollapseWhitespace(const QString &text) {
-	return text
+	auto result = text;
+	return result
 		.replace(QRegularExpression(uR"(\s+)"_q), u" "_q)
 		.trimmed();
 }
