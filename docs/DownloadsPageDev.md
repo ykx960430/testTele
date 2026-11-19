@@ -1937,7 +1937,8 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 - [x] 第二轮反馈：播放器下载默认另存为（O1）+ 点消息信息复制并提示（O2）
 - [x] 第四轮反馈：F4-1 重发副本内容键（`DownloadManager::isDownloaded`）、F4-2 复制转换 + JSON 规则 + 热重载、F4-3 播放器 caption 常驻 + 底部列表通栏（CI run 84 出包）
 - [x] 第五轮反馈根因定位与修复（#2 复制标签 / #3 复制空剪贴板 / #4 已下载底色；#1 caption 由 run 85 修复，见「第五轮真机反馈」）
-- [ ] **推 CI 出包，真机复测第五轮 4 项**
+- [x] 推 CI 出包（run 86 = `2c1b23f`，success，产物 `Telegram-Windows-Debug`）
+- [ ] **真机复测第五轮 4 项**
 - [ ] Phase 2-C.5 右键菜单（暂停/恢复/取消/在文件夹打开）
 - [ ] Phase 3 集成测试
 
@@ -1971,7 +1972,7 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 - 第四轮 F4-2（CI run 84 出包）：`Ayu::ClipboardRules`（ayu/utils/clipboard_rules.*）
   —— `ToFilename` / `ToCleanName` / `Current` / `StartWatcher`，规则 JSON 缺失时用
   内置默认，`QFileSystemWatcher` 热重载，不轮询。
-- 第五轮修复（**待推 CI，run 86**）：
+- 第五轮修复（CI run 86 = `2c1b23f`，success）：
   - #1 caption 只在第一个媒体显示 → run 85（`90f60f2`）已修（overlay 三级回退）；
   - #2 复制没按原始 js 提取标签 → `ToFilename()` 现在解析 `[...]` 前缀并调 `TakeType()`；
   - #3 消息列表复制没复制出文本 → 相册 `HistoryGroupText()` 为空时回退单条正文；
