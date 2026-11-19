@@ -4179,16 +4179,16 @@ void HistoryInner::saveContextGif(FullMsgId itemId) {
 
 void HistoryInner::copyContextText(FullMsgId itemId) {
 	if (const auto item = session().data().message(itemId)) {
-			if (!showCopyRestriction(item)) {
-				const auto text = [&] {
-					if (const auto group = session().data().groups().find(item)) {
-						return HistoryGroupText(group);
-					}
-					return HistoryItemText(item);
-				}();
-				TextUtilities::SetClipboardText(TextForMimeData::Simple(
-					Ayu::ClipboardRules::ToFilename(text.expanded)));
-			}
+		if (!showCopyRestriction(item)) {
+			const auto text = [&] {
+				if (const auto group = session().data().groups().find(item)) {
+					return HistoryGroupText(group);
+				}
+				return HistoryItemText(item);
+			}();
+			TextUtilities::SetClipboardText(TextForMimeData::Simple(
+				Ayu::ClipboardRules::ToFilename(text.expanded)));
+		}
 	}
 }
 
