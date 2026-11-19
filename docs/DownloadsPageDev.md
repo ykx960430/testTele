@@ -1986,6 +1986,41 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 - ❌ 下载限速
 - ❌ 自动重试网络错误
 - ❌ 托盘通知（下载完成等）
+---
+
+### 第七轮真机反馈（2026-11-19，run 86 包复测）
+
+用户复测 run 86（`2c1b23f`）：#4 已下载底色生效（历史 + 新下载都变色）、
+复制去掉 `#话题` 生效、规则热重载生效；#3 单击正文复制无效。
+
+**关键结论：#3 无效是因为 run 86 里根本没有这段代码。**
+单击正文复制是第六轮 F6-1，首次出现在 `b5fae27`（run 87 才推，且 run 87 / 88
+因缺 include 编译失败）。run 86 的包点正文没反应是预期行为，不是「不支持」。
+→ 需要 run 89（`89fa33a`）或之后的包才能复测这一项。
+
+自检方法：鼠标悬停在消息正文上，光标变成**手型**（而不是 I 型文本光标），
+说明 `getStateText` 挂上了 `textCopyHandler`，功能已生效。
+
+#### F7-1 已下载气泡四角露出原始 msgBg（本轮修复）
+
+现象：气泡主体是 `st::msgFile2Bg` 绿色，但四个圆角处各有一小块三角形显示
+原本的深蓝 `msgBg`。
+
+根因：`PaintSolidBubble()` 的圆角不是纯色填充，而是画**预先染好 msgBg 颜色**的
+圆角贴图（`st.msgBgCornersLarge/Small`，见 `chat_style.cpp:786-795`
+`EnsureCorners(..., result.msgBg, ...)`）。`solidBg` 只改了 `fillBg` / `fillSh`
+的纯色，圆角贴图仍是 msgBg 色。
+
+修法：`message_bubble.cpp` 新增 `SolidBgCorners()`，按（颜色, 半径, 阴影）缓存
+`PrepareCornerPixmaps(radius, bg, sh)`；`PaintSolidBubble()` 的 `fillCorner`
+在 `solidBg` 非空时改用它。
+
+#### 下一轮（用户已提，未实现）
+
+- 复制文本去空白太激进：现在 `CollapseWhitespace()` 用 `\s+` 直接把**所有**
+  空白（含换行）删掉。期望：只 trim 首尾 + 连续空白压成 1 个空格。
+- 媒体预览右下角「更多」（三个点）按钮误触：鼠标一划过就弹菜单，
+  希望延迟数秒、确认鼠标仍在按钮上才弹。
 
 ---
 
@@ -2017,7 +2052,13 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
       `clipboard_rules.cpp` 缺 `history/history.h`（`History` 不完全类型）、
       缺 `data/data_session.h`（`Data::Session` 不完全类型），
       `history_view_message.cpp` 缺 `base/weak_ptr.h`；三条补齐后重推（run 89）
-- [ ] **真机复测第六轮 4 项 + 2 条新需求**
+- [x] 第七轮真机复测（run 86 包）：#4 底色、去 `#话题`、规则热重载 通过；
+      #3 单击复制无效是因为 run 86 不含 F6-1（见「第七轮真机反馈」）
+- [x] F7-1 已下载气泡圆角露出 msgBg → `SolidBgCorners()` 缓存纯色圆角贴图
+- [x] include 链条固化到 `.ai-memory/ci-windows-build.md`
+- [ ] 下一轮两项：复制去空白改「trim + 连续空白压 1 个」；
+      媒体预览「更多」按钮加悬停延迟
+- [ ] **真机复测第六轮 4 项 + 2 条新需求**（需 run 89 或之后的包）
 - [ ] Phase 2-C.5 右键菜单（暂停/恢复/取消/在文件夹打开）
 - [ ] Phase 3 集成测试
 
@@ -2033,7 +2074,7 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 
 ```
 你好，我是 CatPaw（妙手），继续 AyuGramDesktop 下载系统重构项目。先读 docs/DownloadsPageDev.md
-的「第六轮真机反馈」和本节，再动手。本机不能编译，一律走 github/dev 的 CI。
+的「第七轮真机反馈」和本节，再动手。本机不能编译，一律走 github/dev 的 CI。
 
 已完成：
 - Phase 1（暂停/续传核心 + 序列化 + 退出行为），tag v0.1.0-phase1-pause-resume
@@ -2070,15 +2111,21 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
     `CollapseWhitespace`，`keepHashtags` 默认 false；
   - F6-4 规则外置 → `EnsureFile()` 首次运行把 `ayu_clipboard_rules.json`
     写到 exe 目录，之后热重载。
+- 第六轮真机复测（run 86 包，2026-11-19）：#4 底色、去 `#话题`、规则热重载 通过；
+  #3 单击复制无效 → 原因是 run 86 根本不含 F6-1，要 run 89+ 才能测。
+- 第七轮修复（F7-1，待出包）：已下载气泡四角露出 msgBg → `message_bubble.cpp`
+  新增 `SolidBgCorners()`，`solidBg` 非空时改用按颜色缓存的圆角贴图。
+- include 链条已固化到 `.ai-memory/ci-windows-build.md`（`History` /
+  `Data::Session` / `DownloadManager` / `Groups` 各自该补哪个头）。
 
-未做：Phase 2-C.5 右键菜单；第六轮 4 项 + 2 条新需求的真机验证；Phase 3 集成测试。
+未做：Phase 2-C.5 右键菜单；下一轮两项（复制去空白、媒体预览「更多」按钮悬停延迟）；
+Phase 3 集成测试。
 
-本轮任务：**先推 CI 出包（`git push github dev`），真机复测第六轮 4 项 + 2 条新需求**：
-1. 聊天窗口单击消息正文的文字 → 复制（拖选仍然可用）；
-2. 历史下载 / 后续新下载的视频，整个气泡换 `st::msgFile2Bg` 底色；
-   相册里下载了任意一个 → 整组都变色；
-3. 复制出来的文件名不含 `#话题`，但仍带 `[标签]` 前缀；
-4. exe 旁边出现 `ayu_clipboard_rules.json`，改它不用重新出包（改完不用重启）。
+本轮任务：**先推 CI 出包（`git push github dev`），真机复测**：
+1. 已下载视频气泡的四个圆角也是绿色，不再露出深蓝 msgBg；
+2. 若 run 89 已出：单击消息正文复制（悬停光标应为手型）、相册任一下载整组变色。
+
+下一轮再做：复制去空白改「trim + 连续空白压 1 个」；媒体预览「更多」按钮加悬停延迟。
 
 注意：
 - 每批推 CI 一轮，推之前做静态自查（括号/引号/原始字符串平衡、逐 hunk 复核删除行、

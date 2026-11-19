@@ -310,3 +310,31 @@ error C2059: syntax error: 'st::historyAdminLogEmptyPadding'
 3. 逐 hunk 肉眼复核 diff，尤其是"删除行"；
 4. 新文件 `head -8` 对照同目录头注释格式；
 5. 新增文本常量量字节数（MSVC 单字面量上限 16380）。
+
+## 2026-11 第 87 / 88 次 CI 编译失败（缺 include 连锁）
+
+`ayu/utils/clipboard_rules.cpp` 里新写的 `CopyItemTextToClipboard()` 连吃两次：
+
+```
+error C2027: use of undefined type 'History'
+error C2027: use of undefined type 'Data::Session'
+```
+
+**根因**：这个 .cpp 原本只依赖 Qt 和自己的头。一旦开始调 `HistoryItem` 的
+方法，就需要一条完整的 include 链，而 `history_item.h` / `history.h` /
+`data_groups.h` 里对 `History`、`Data::Session` 只有前向声明。
+
+**新增跨模块调用时的 include 清单**（缺一条就 C2027 / C2039）：
+
+| 要调的东西 | 必须 include |
+| --- | --- |
+| `item->history()` 上取 `->owner()` | `history/history.h`（`History` 完整定义；`owner()` 来自 `Dialogs::Entry`）|
+| `->owner().groups()` | `data/data_session.h`（`groups()` 定义在 `data_session.h`）|
+| `entry->media()->document()` | `history/history_item.h`（它带 `data/data_media_types.h`）|
+| `group->items` / `Groups::find` | `data/data_groups.h` |
+| `base::make_weak(...)` | `base/weak_ptr.h` |
+| `TextUtilities::SetClipboardText` / `TextForMimeData` | `ui/text/text_utilities.h`（它带 `text_entity.h`）|
+
+**教训**：`History`、`Data::Session` 这种被广泛前向声明的类型，会出现"声明能过、
+使用编译不过"。离线改代码时，凡是新增了对另一个模块类型的**方法调用**，先 grep
+该类型的完整定义在哪个头，再补 include，别等 CI。

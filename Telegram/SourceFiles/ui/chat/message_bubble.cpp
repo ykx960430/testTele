@@ -283,6 +283,27 @@ void PaintPatternBubble(QPainter &p, const SimpleBubble &args) {
 	p.setOpacity(wasOpacity);
 }
 
+const CornersPixmaps &SolidBgCorners(
+		const style::color &bg,
+		const style::color *sh,
+		int radius) {
+	static CornersPixmaps cache[2];
+	static int radii[2] = { 0, 0 };
+	static auto color = QColor();
+	static const style::color *shadow = nullptr;
+	const auto index = (radius == BubbleRadiusLarge()) ? 1 : 0;
+	if (cache[index].p[0].isNull()
+		|| radii[index] != radius
+		|| color != bg->c
+		|| shadow != sh) {
+		cache[index] = PrepareCornerPixmaps(radius, bg, sh);
+		radii[index] = radius;
+		color = bg->c;
+		shadow = sh;
+	}
+	return cache[index];
+}
+
 void PaintSolidBubble(QPainter &p, const SimpleBubble &args) {
 	const auto &st = args.st->messageStyle(args.outbg, args.selected);
 	const auto &bg = args.solidBg ? *args.solidBg : st.msgBg;
@@ -301,10 +322,22 @@ void PaintSolidBubble(QPainter &p, const SimpleBubble &args) {
 	}, [&](const QRect &rect) {
 		p.fillRect(rect, *sh);
 	}, [&](int x, int y, int index, Corner size) {
-		auto &corners = (size == Corner::Large)
-			? st.msgBgCornersLarge
-			: st.msgBgCornersSmall;
-		p.drawPixmap(x, y, corners.p[index]);
+		// WHY: the stock corners are pre-colored with msgBg, so a solid
+		// background of another color needs corners of its own.
+		if (args.solidBg) {
+			const auto &corners = SolidBgCorners(
+				*args.solidBg,
+				&st.msgShadow,
+				(size == Corner::Large)
+					? BubbleRadiusLarge()
+					: BubbleRadiusSmall());
+			p.drawPixmap(x, y, corners.p[index]);
+		} else {
+			auto &corners = (size == Corner::Large)
+				? st.msgBgCornersLarge
+				: st.msgBgCornersSmall;
+			p.drawPixmap(x, y, corners.p[index]);
+		}
 	}, [&](const QPoint &bottomPosition) {
 		tail.paint(p, bottomPosition - tailShift, args.outerWidth);
 		return tail.width();
