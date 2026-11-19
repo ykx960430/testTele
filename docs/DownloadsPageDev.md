@@ -1496,6 +1496,73 @@ download_progress : ... {}
 2. F4-2：**接受丢失富文本格式** —— 复制就是为了重命名文件，转换目标是「文本 → 文件名」。
 3. F4-3(1)：截图确认是 **caption**。
 
+### 第五轮真机反馈（2026-11-19，run 84 包）· 已定位并修复
+
+run 84 = `679ac2b`（CI success）。用户真机测出 4 点，逐条拿代码定位如下。
+第 1 点由 run 85（`90f60f2`）修复，其余三点在本轮修复。
+
+#### F5-1 caption 只在第一个媒体显示
+
+- 现象：相册里只有第一个媒体显示「消息信息」，其余没有。
+- 根因：`OverlayWidget::refreshCaption()` 只取 `_message` 自己的
+  `InstantViewMediaCaption` 和 `_message->translatedText()`，两者都空就提前 return。
+  相册正文只挂在其中一个 part 上，看第二个 part 时两者都空。
+- 修法（run 85 已提交，`media/view/media_view_overlay_widget.cpp:4155-4176`）：
+  把提前 return 改成三级回退 —— `_message->translatedText()` → 同组里第一个
+  `!emptyText()` 的 part 的 `translatedText()` → `_message` 自身
+  `HistoryMessageMediaForInstantView::captions` 里第一个非空 caption。
+
+#### F5-2 复制没有按原始 js 提取标签
+
+- 现象：复制出来的文件名没有 `[标签]` 前缀。
+- 根因：`Ayu::ClipboardRules::ToFilename()` 只跑清洗步骤，**从不调用 `TakeType()`**
+  （只有 `ToCleanName()` 调）。而 `takeType` 是 js 里唯一补标签的地方
+  （`GT重命名.js:30-47`），所以标签必然丢失。
+- 修法（`ayu/utils/clipboard_rules.cpp:348-370`）：把原步骤循环抽成匿名命名空间
+  函数 `ApplySteps()`；`ToFilename()` 改为 解析 `[...]` 前缀标签 → `ApplySteps` 清洗
+  → `TakeType(tags, result)` → 有标签就拼回 `[标签]名字`，与 `ToCleanName()` 同构。
+- 连带：清洗步骤会把「只有链接 / 只有表情 / 只有 @人名」的正文清成空串，空剪贴板
+  看起来就是「什么都没复制」，所以加一条兜底 —— 结果为空时退回
+  `CollapseWhitespace(RemoveIllegalChars(text))`。
+
+#### F5-3 消息列表「复制文本」没复制出文本
+
+- 现象：右键「复制文本」后剪贴板是空的。
+- 根因：`HistoryInner::copyContextText()` 对**相册**优先用 `HistoryGroupText(group)`，
+  而该函数（`history/history_item_text.cpp:471-514`）在「组里没有任何一条带 caption」
+  时返回**空** `TextForMimeData`（`hasCaption` 全 false → 末尾 `first == end` 直接
+  `return TextForMimeData()`），`ToFilename("")` → 空剪贴板。
+- 另一条路径：`ListWidget::copySelectedText()` 走
+  `Iv::SetRichBlocksClipboard(text, getSelectedRichBlocks(), session)`，其中
+  `getSelectedRichBlocks()` 取的是 instant-view 的 rich page 块
+  （`history/history_item_text.cpp:464-469`），普通消息为空 → 走纯文本兜底，
+  复制的是**未转换的原文**，等于没挂上 F4-2。
+- 修法：
+  - `history/history_inner_widget.cpp:4180-4195`：group text 为空时回退
+    `HistoryItemText(item).expanded`；
+  - `history/view/history_view_context_menu.cpp:1918-1938`：同样回退，并统一走
+    `ToFilename` + `TextForMimeData::Simple`，不再走 rich blocks；
+  - `history/view/history_view_list_widget.cpp:3582-3590`：删掉
+    `getSelectedRichBlocks()`（定义 + `history_view_list_widget.h` 声明，已无调用者），
+    `copySelectedText()` 改为转换后纯文本复制。
+- ⚠️ 用户口径：复制就是为了给文件重命名，**接受丢失富文本格式**（见 F4-2）。
+
+#### F5-4 已下载媒体没有背景色标识
+
+- 现象：聊天里已下载的视频，气泡没有换背景色。
+- 根因：`Message::draw()` 的 `downloadedVideo` 判据只有
+  `Core::App().downloadManager().isDownloaded(doc)`，而 `isDownloaded()`
+  （`data/data_download_manager.cpp:1247-1269`）只遍历 `_sessions[...].downloaded`，
+  也就是**本版本下载系统记录过**的文件。用户此前已经存到磁盘的视频没有这条记录，
+  判据不成立。
+- 修法（`history/view/history_view_message.cpp:1943-1949`）：追加本地文件判据 ——
+  `!doc->filepath().isEmpty() || isDownloaded(doc)`。
+  `DocumentData::filepath()`（`data/data_document.cpp:1496-1500`）返回 `_location`，
+  而 `_location` 在 `setRemoteLocation()`（`:1983-2004`）构造时就会从本地存储
+  `readFileLocation(mediaKey())` 读回来，所以「以前保存过的文件」也能认。
+- 保持用户已确认的口径：只标识**视频**，**整个气泡**换 `st::msgFile2Bg` 底色
+  （`:1958`），图片不标识。
+
 ### Phase 3：集成测试 ⏳ 待开发
 
 | # | 任务 | 文件 | 估计 |
@@ -1868,7 +1935,9 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 - [x] 第一轮真机反馈的 UI 项：侧边栏按钮置底、来源会话、固定操作条（全部暂停/继续）、已完成倒序、中文文案
 - [x] 第二轮反馈：封面缩略图（U2a）、层宽加倍到 780px（U2c）、下载中可折叠（U2d）、已完成项多行完整文件名 + 大小·来源 + 点击跳转（U3a/U3b）、行右侧暂停/继续图标（U3c）、暂停任务保留在「下载中」组（U3d）
 - [x] 第二轮反馈：播放器下载默认另存为（O1）+ 点消息信息复制并提示（O2）
-- [ ] **推 CI 出包，验证上述全部修复**
+- [x] 第四轮反馈：F4-1 重发副本内容键（`DownloadManager::isDownloaded`）、F4-2 复制转换 + JSON 规则 + 热重载、F4-3 播放器 caption 常驻 + 底部列表通栏（CI run 84 出包）
+- [x] 第五轮反馈根因定位与修复（#2 复制标签 / #3 复制空剪贴板 / #4 已下载底色；#1 caption 由 run 85 修复，见「第五轮真机反馈」）
+- [ ] **推 CI 出包，真机复测第五轮 4 项**
 - [ ] Phase 2-C.5 右键菜单（暂停/恢复/取消/在文件夹打开）
 - [ ] Phase 3 集成测试
 
@@ -1884,7 +1953,7 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 
 ```
 你好，我是 CatPaw（妙手），继续 AyuGramDesktop 下载系统重构项目。先读 docs/DownloadsPageDev.md
-的「第四轮真机反馈」和本节，再动手。本机不能编译，一律走 github/dev 的 CI。
+的「第五轮真机反馈」和本节，再动手。本机不能编译，一律走 github/dev 的 CI。
 
 已完成：
 - Phase 1（暂停/续传核心 + 序列化 + 退出行为），tag v0.1.0-phase1-pause-resume
@@ -1892,28 +1961,35 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 - Phase 2-B（BigPage 真实内容：分组 + 行模型 + 进度条 + 点击恢复/打开文件夹）
 - Phase 2-C.1-4 + 2-C.6（侧边栏下载入口 + 角标 + 跳转 BigPage；顶栏 ⋮ 菜单：全部暂停/继续 + 导出/导入下载列表；文案全量本地化）
 - 退出不丢任务：`Account::writeLocationsForce()` + `DownloadManager::flushPaused()`
-- 第一 / 二 / 三轮真机反馈修复（详见文档对应小节）
-- 第四轮 F4-1（commit `8d8b204`，CI run 79 已成功出包）：
-  - `DownloadManager::isDownloaded(const DocumentData*)`（data_download_manager.cpp）按
-    「大小精确相等 +（双方都有时长且相等 || 双方原始文件名非空且相等）」认领重发副本；
-  - `addLoaded()` 补写 `document->setLocation()` + `writeFileLocation(mediaKey(), ...)`；
-  - `DownloadedId` 加 `duration` / `sourceFilename`，序列化追加在流末尾 + `!stream.atEnd()` 守卫；
-  - overlay 三处判定改为 `loaded(true) || isDownloaded(_document)`。
-  - **真机未验**：要在红米 K30 Pro 上确认「重发同一条视频 → 另一条消息打开不再显示下载按钮」。
+- 第一 / 二 / 三 / 四 / 五轮真机反馈修复（详见文档对应小节）
+- 第四轮 F4-1（CI run 79 出包）：`DownloadManager::isDownloaded(const DocumentData*)`
+  按「大小精确相等 +（双方都有时长且相等 || 双方原始文件名非空且相等）」认领重发副本；
+  `addLoaded()` 补写 `document->setLocation()` + `writeFileLocation(mediaKey(), ...)`；
+  `DownloadedId` 加 `duration` / `sourceFilename`；overlay 三处判定改为
+  `loaded(true) || isDownloaded(_document)`。
+- 第四轮 F4-3（CI run 84 出包）：播放器 caption 常驻 + 底部媒体列表通栏居中。
+- 第四轮 F4-2（CI run 84 出包）：`Ayu::ClipboardRules`（ayu/utils/clipboard_rules.*）
+  —— `ToFilename` / `ToCleanName` / `Current` / `StartWatcher`，规则 JSON 缺失时用
+  内置默认，`QFileSystemWatcher` 热重载，不轮询。
+- 第五轮修复（**待推 CI，run 86**）：
+  - #1 caption 只在第一个媒体显示 → run 85（`90f60f2`）已修（overlay 三级回退）；
+  - #2 复制没按原始 js 提取标签 → `ToFilename()` 现在解析 `[...]` 前缀并调 `TakeType()`；
+  - #3 消息列表复制没复制出文本 → 相册 `HistoryGroupText()` 为空时回退单条正文；
+    `ListWidget::copySelectedText()` 删掉 `getSelectedRichBlocks()`，统一走 `ToFilename`；
+  - #4 已下载视频没底色 → `Message::draw()` 判据追加 `!doc->filepath().isEmpty()`。
 
-未做：Phase 2-C.5 右键菜单；F4-1 真机验证；F4-3；F4-2。
+未做：Phase 2-C.5 右键菜单；F4-1 / 第五轮 4 项的真机验证；Phase 3 集成测试。
 
-本轮任务：F4-3 播放器两项优化（方案已定，见「第四轮真机反馈」F4-3 节）：
-1. caption 常驻 —— `refreshCaption()`（media_view_overlay_widget.cpp）里 per-item 文本为空时
-   先回退 `_message->translatedText()`，仍为空才走原来的 return；
-2. 底部媒体列表通栏居中 —— 新增 `_captionAvailableWidth` 沿用原 `bottomSkip` 算法给 caption 用，
-   `_groupThumbsAvailableWidth` 改成 `width() - 2 * <新边距>`，边距加在 `media/view/media_view.style`，
-   `_groupThumbsLeft` 居中公式不变。禁止硬编码像素。
+本轮任务：**先推 CI 出包（`git push github dev`），真机复测第五轮 4 项**：
+1. 相册里第 2 个及以后的媒体也显示「消息信息」（正文 / 第一个媒体的 caption）；
+2. 复制文本带 `[标签]` 前缀（标签由规则 JSON 的 `typeRules` 决定）；
+3. 消息列表右键「复制文本」一定复制出东西（相册、纯文本、只有链接的消息）；
+4. 聊天里已下载的视频整个气泡换 `st::msgFile2Bg` 底色。
 
-之后：F4-2（复制文本转换 + 规则外置 JSON + QFileSystemWatcher 热重载），放最后。
-每批推 CI 一轮（`git push github dev`），推之前做静态自查。
-注意：新样式符号加在 `media/view/media_view.style` → 生成的头文件是 `styles/style_media_view.h`
-（生成器用 `NAME_WLE`，路径被剃掉），CI 是全新 configure，天然会重新生成。
+注意：
+- 每批推 CI 一轮，推之前做静态自查（括号/引号/原始字符串平衡、逐 hunk 复核删除行、
+  文本常数字节数 < 16380），见 .ai-memory/ci-windows-build.md 末节。
+- `AddCopyFilename`（复制文件名）仍显式排除视频，见 F4-2；放宽需单独确认。
 ```
 
 ---
