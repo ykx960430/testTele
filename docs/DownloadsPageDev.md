@@ -2013,9 +2013,10 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 - [x] 第五轮真机复测：#1、#2 通过；#3、#4 无效果（见「第六轮真机反馈」）
 - [x] 第六轮反馈修复：F6-1 单击消息正文复制、F6-2 数据层判据 + 相册整组变色、
       F6-3 复制前去 `#话题`、F6-4 规则数据外置（种子 + 热重载）
-- [x] run 87（`b5fae27`）编译失败修复：`clipboard_rules.cpp` 缺 `history/history.h`
-      导致 `History` 为不完全类型，`history_view_message.cpp` 缺 `base/weak_ptr.h`；
-      两条 include 补齐后重推（run 88）
+- [x] run 87 / 88 编译失败修复（缺 include 连锁，逐个补）：
+      `clipboard_rules.cpp` 缺 `history/history.h`（`History` 不完全类型）、
+      缺 `data/data_session.h`（`Data::Session` 不完全类型），
+      `history_view_message.cpp` 缺 `base/weak_ptr.h`；三条补齐后重推（run 89）
 - [ ] **真机复测第六轮 4 项 + 2 条新需求**
 - [ ] Phase 2-C.5 右键菜单（暂停/恢复/取消/在文件夹打开）
 - [ ] Phase 3 集成测试
@@ -2058,7 +2059,7 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
   - #4 已下载视频没底色 → `Message::draw()` 判据追加 `!doc->filepath().isEmpty()`。
 
 - 第五轮真机复测：#1 caption、#2 复制标签 通过；#3、#4 无效（原因见第六轮）。
-- 第六轮修复（run 87 = `b5fae27` 编译失败，缺两条 include；已补齐重推 run 88）：
+- 第六轮修复（run 87 / 88 编译失败，缺三条 include；已补齐重推 run 89）：
   - F6-1 单击消息正文复制 → 新增 `MessageTextCopyClickHandler`，
     `Message::getStateText()` 在正文 `link` 为空时挂上，并在
     `allowTextSelectionByHandler()` 放行以保住拖选；

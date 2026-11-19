@@ -8,6 +8,7 @@
 #include "ayu/utils/clipboard_rules_data.h"
 
 #include "data/data_groups.h"
+#include "data/data_session.h"
 #include "history/history.h"
 #include "history/history_item.h"
 #include "history/history_item_text.h"
