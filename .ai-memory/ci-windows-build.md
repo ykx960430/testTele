@@ -277,3 +277,36 @@ inline constexpr char kDefaultJson[] =
 - 新建文件先 `head -8` 对照同目录已有文件的头注释格式。
 - 校验脚本要做的三件事：拼接后与原 JSON 逐字节相同、`JSON.parse` 能过、
   每个 chunk 的 UTF-8 字节数 < 16380。
+
+## 2026-11 第七次 CI 编译失败
+
+`ayu/ui/message_history/history_inner.cpp(272)`：
+
+```
+error C2059: syntax error: 'st::historyAdminLogEmptyPadding'
+```
+
+**根因是我上一轮编辑时手滑删掉了一个减号。** 构造函数初始化列表原本是
+
+```cpp
+	  _emptyText(
+		  st::historyAdminLogEmptyWidth
+		  - st::historyAdminLogEmptyPadding.left()
+		  - st::historyAdminLogEmptyPadding.left()) {
+```
+
+我插 `StartWatcher()` 时把第二个 `- ` 弄丢了，第三行变成裸的
+`st::historyAdminLogEmptyPadding.left()) {`，于是 `left()` 成了语法错误。
+
+**教训**：`git show <commit> -- <file>` 逐 hunk 复核自己的编辑，重点看
+**被替换掉的那些行有没有多删/少删字符**。这次三轮 CI 失败里有两轮
+（C2059、C2026）都是"改一行顺手改坏一行"，靠肉眼读代码是读不出来的，
+必须对着 diff 看。
+
+推 CI 前值得跑的最小静态自查（本轮已固化为脚本思路）：
+
+1. `git diff <上一个绿 sha> --name-only` 拿到所有改动文件；
+2. 逐文件做**括号/引号/原始字符串平衡**扫描（跳过注释、字符串、raw string）；
+3. 逐 hunk 肉眼复核 diff，尤其是"删除行"；
+4. 新文件 `head -8` 对照同目录头注释格式；
+5. 新增文本常量量字节数（MSVC 单字面量上限 16380）。
