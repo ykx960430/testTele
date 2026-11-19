@@ -1918,16 +1918,23 @@ void FillContextMenuItems(
 				result->addAction(tr::lng_context_copy_text(tr::now), [=] {
 					if (const auto item = owner->message(itemId)) {
 						if (!list->showCopyRestriction(item)) {
-							if (asGroup) {
-								if (const auto group = owner->groups().find(item)) {
-									TextUtilities::SetClipboardText(HistoryGroupText(group));
-									return;
+							// WHY: an album keeps its text on a single part, so
+							// the group text is empty for the others: copy the
+							// part itself instead of an empty clipboard.
+							const auto text = [&] {
+								if (asGroup) {
+									if (const auto group = owner->groups().find(item)) {
+										const auto groupText = HistoryGroupText(group);
+										if (!groupText.empty()) {
+											return groupText.expanded;
+										}
+									}
 								}
-							}
-							Iv::SetRichBlocksClipboard(
-								HistoryItemText(item),
-								HistoryItemRichBlocks(item),
-								&item->history()->session());
+								return HistoryItemText(item).expanded;
+							}();
+							TextUtilities::SetClipboardText(
+								TextForMimeData::Simple(
+									Ayu::ClipboardRules::ToFilename(text)));
 						}
 					}
 				}, &st::menuIconCopy);

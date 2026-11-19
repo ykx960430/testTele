@@ -1938,11 +1938,14 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 		if (from && (_fromNameVersion < from->nameVersion())) {
 			fromNameUpdated(g.width());
 		}
+		// WHY: isDownloaded() only knows what this build downloaded, so a
+		// video saved earlier needs the local file check as well.
 		const auto downloadedVideo = [&] {
 			const auto doc = media ? media->getDocument() : nullptr;
 			return doc
 				&& (doc->isVideoMessage() || doc->isVideoFile())
-				&& Core::App().downloadManager().isDownloaded(doc);
+				&& (!doc->filepath().isEmpty()
+					|| Core::App().downloadManager().isDownloaded(doc));
 		}();
 		const auto simple = Ui::SimpleBubble{
 			.st = context.st,

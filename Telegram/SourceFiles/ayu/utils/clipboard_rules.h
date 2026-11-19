@@ -29,7 +29,7 @@ void StartWatcher();
 
 [[nodiscard]] const Rules &Current();
 
-// Text -> file name, without extension.
+// Text -> file name, without extension, keeping the "[tags]" prefix.
 [[nodiscard]] QString ToFilename(const QString &text);
 
 // Existing file name -> cleaned name (same as handleName() in GT重命名.js).

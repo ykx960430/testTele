@@ -267,41 +267,7 @@ QString ToBaseName(const QString &text, const Rules &rules) {
 	return result;
 }
 
-} // namespace
-
-const Rules &Current() {
-	if (!gRulesLoaded) {
-		Reload();
-	}
-	return gRulesLoaded ? gRules : Fallback();
-}
-
-void StartWatcher() {
-	static QFileSystemWatcher *watcher = nullptr;
-	if (!watcher) {
-		if (const auto app = QCoreApplication::instance()) {
-			watcher = new QFileSystemWatcher(app);
-			QObject::connect(watcher, &QFileSystemWatcher::fileChanged, [] {
-				Reload();
-			});
-			QObject::connect(
-				watcher,
-				&QFileSystemWatcher::directoryChanged,
-				[](const QString &) { Reload(); });
-		}
-	}
-	const auto path = ResolvePath();
-	if (watcher && !path.isEmpty()) {
-		watcher->addPath(path);
-		watcher->addPath(QFileInfo(path).absolutePath());
-	}
-	if (!gRulesLoaded) {
-		Reload();
-	}
-}
-
-QString ToFilename(const QString &text) {
-	const auto &rules = Current();
+QString ApplySteps(const QString &text, const Rules &rules) {
 	auto result = text;
 	auto steps = rules.steps;
 	if (steps.empty()) {
@@ -344,6 +310,63 @@ QString ToFilename(const QString &text) {
 		result = CollapseWhitespace(RemoveHashtags(result));
 	}
 	return result;
+}
+
+} // namespace
+
+const Rules &Current() {
+	if (!gRulesLoaded) {
+		Reload();
+	}
+	return gRulesLoaded ? gRules : Fallback();
+}
+
+void StartWatcher() {
+	static QFileSystemWatcher *watcher = nullptr;
+	if (!watcher) {
+		if (const auto app = QCoreApplication::instance()) {
+			watcher = new QFileSystemWatcher(app);
+			QObject::connect(watcher, &QFileSystemWatcher::fileChanged, [] {
+				Reload();
+			});
+			QObject::connect(
+				watcher,
+				&QFileSystemWatcher::directoryChanged,
+				[](const QString &) { Reload(); });
+		}
+	}
+	const auto path = ResolvePath();
+	if (watcher && !path.isEmpty()) {
+		watcher->addPath(path);
+		watcher->addPath(QFileInfo(path).absolutePath());
+	}
+	if (!gRulesLoaded) {
+		Reload();
+	}
+}
+
+QString ToFilename(const QString &text) {
+	const auto &rules = Current();
+	// WHY: the original script reads the "[tags]" prefix off the file name
+	// and re-derives it from the text, so a copied caption keeps the tags.
+	const auto close = text.indexOf(']');
+	auto tags = QStringList();
+	const auto baseStart = (close > 0) ? close + 1 : 0;
+	if (close > 0) {
+		tags = text.mid(1, close - 1).split(' ', Qt::KeepEmptyParts);
+	}
+	auto result = ApplySteps(text.mid(baseStart), rules);
+	// WHY: the steps strip a message made only of a link, an emoji or a
+	// mention down to nothing, and an empty clipboard reads as "copying
+	// did nothing", so keep the text itself as the name.
+	if (result.isEmpty() && baseStart < text.size()) {
+		result = CollapseWhitespace(RemoveIllegalChars(text));
+	}
+	const auto typeTags = TakeType(tags, result, rules);
+	if (typeTags.isEmpty()) {
+		return result;
+	}
+	return u"["_q + typeTags.join(u' ') + u"]"_q + result;
 }
 
 QString ToCleanName(const QString &text) {

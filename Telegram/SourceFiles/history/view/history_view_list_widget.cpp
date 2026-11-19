@@ -108,6 +108,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // AyuGram includes
 #include "ayu/features/filters/filters_cache_controller.h"
+#include "ayu/utils/clipboard_rules.h"
 #include "ayu/utils/telegram_helpers.h"
 
 
@@ -3578,27 +3579,6 @@ TextForMimeData ListWidget::getSelectedText() const {
 	return HistorySelectedItemsText(entries, richContext);
 }
 
-Iv::RichPageBlocksSlice ListWidget::getSelectedRichBlocks() const {
-	auto selected = _selected;
-
-	if (_mouseAction == MouseAction::Selecting && !_dragSelected.empty()) {
-		applyDragSelection(selected);
-	}
-
-	if (selected.empty()) {
-		const auto view = viewForItem(_selectedTextItem);
-		return view
-			? view->selectedRichBlocks(_selectedTextSelection)
-			: Iv::RichPageBlocksSlice();
-	} else if (selected.size() != 1) {
-		return {};
-	}
-	const auto item = session().data().message(selected.front().first);
-	return (!item || session().data().groups().find(item))
-		? Iv::RichPageBlocksSlice()
-		: HistoryItemRichBlocks(item);
-}
-
 void ListWidget::copySelectedText() {
 	if (showCopyRestrictionForSelected()) {
 		return;
@@ -3607,10 +3587,8 @@ void ListWidget::copySelectedText() {
 	if (text.empty()) {
 		return;
 	}
-	Iv::SetRichBlocksClipboard(
-		text,
-		getSelectedRichBlocks(),
-		&session());
+	TextUtilities::SetClipboardText(TextForMimeData::Simple(
+		Ayu::ClipboardRules::ToFilename(text.expanded)));
 }
 
 MessageIdsList ListWidget::getSelectedIds() const {

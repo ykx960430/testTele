@@ -4180,14 +4180,19 @@ void HistoryInner::saveContextGif(FullMsgId itemId) {
 void HistoryInner::copyContextText(FullMsgId itemId) {
 	if (const auto item = session().data().message(itemId)) {
 		if (!showCopyRestriction(item)) {
+			// WHY: an album keeps its text on a single part, so the group
+			// text is empty for the others: copy the part itself instead.
 			const auto text = [&] {
 				if (const auto group = session().data().groups().find(item)) {
-					return HistoryGroupText(group);
+					const auto groupText = HistoryGroupText(group);
+					if (!groupText.empty()) {
+						return groupText.expanded;
+					}
 				}
-				return HistoryItemText(item);
+				return HistoryItemText(item).expanded;
 			}();
 			TextUtilities::SetClipboardText(TextForMimeData::Simple(
-				Ayu::ClipboardRules::ToFilename(text.expanded)));
+				Ayu::ClipboardRules::ToFilename(text)));
 		}
 	}
 }
