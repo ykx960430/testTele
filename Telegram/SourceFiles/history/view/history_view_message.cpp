@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/options.h"
 #include "base/qt/qt_key_modifiers.h"
 #include "base/unixtime.h"
+#include "base/weak_ptr.h"
 #include "core/application.h"
 #include "core/click_handler_types.h" // ClickHandlerContext
 #include "core/ui_integration.h"
