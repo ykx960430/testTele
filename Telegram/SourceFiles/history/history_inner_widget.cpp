@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_inner_widget.h"
 
 #include "api/api_polls.h"
+#include "base/debug_log.h"
 #include "chat_helpers/stickers_emoji_pack.h"
 #include "core/application.h"
 #include "core/file_utilities.h"
@@ -2624,6 +2625,9 @@ void HistoryInner::mouseActionFinish(
 	};
 
 	auto activated = ClickHandler::unpressed();
+	DEBUG_LOG(("[COPY] finish: activated %1 action %2")
+		.arg(activated ? 1 : 0)
+		.arg(int(_mouseAction)));
 	const auto pressedItemView = Element::Pressed();
 	if (pressedItemView) {
 		repaintItem(pressedItemView);
@@ -5726,6 +5730,9 @@ void HistoryInner::mouseActionUpdate() {
 		}
 	}
 	auto lnkChanged = ClickHandler::setActive(dragState.link, lnkhost);
+	if (dragState.link) {
+		DEBUG_LOG(("[COPY] hover: link set"));
+	}
 	_dragStateUserpic = dragStateUserpic;
 	if (lnkChanged || dragState.cursor != _mouseCursorState) {
 		Ui::Tooltip::Hide();
