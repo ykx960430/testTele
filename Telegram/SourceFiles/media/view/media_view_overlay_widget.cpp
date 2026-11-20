@@ -217,6 +217,10 @@ constexpr auto kVolumeStep = 0.1;
 constexpr auto kFrameStepFallbackFps = 30.;
 constexpr auto kFrameStepThrottleMs = crl::time(150);
 constexpr auto kDropdownShowDelay = 1 * crl::time(1000);
+constexpr auto kCaptionCloseSize = 18;
+constexpr auto kCaptionCloseSkip = 4;
+constexpr auto kCaptionCloseStroke = 2;
+constexpr auto kCaptionCloseInset = 4;
 
 // macOS OpenGL renderer fails to render larger texture
 // even though it reports that max texture size is 16384.
@@ -1956,11 +1960,13 @@ void OverlayWidget::refreshCaptionGeometry() {
 	_caption.updateSkipBlock(0, 0);
 	_captionShowMoreWidth = 0;
 	_captionSkipBlockWidth = 0;
+	_captionCloseRect = QRect();
 
 	const auto storiesCaptionWidth = _w
 		- st::mediaviewCaptionPadding.left()
 		- st::mediaviewCaptionPadding.right();
-	if (_caption.isEmpty() && (!_stories || !_stories->repost())) {
+	if (_captionHidden
+		|| (_caption.isEmpty() && (!_stories || !_stories->repost()))) {
 		_captionRect = QRect();
 		return;
 	} else if (_fullScreenVideo) {
@@ -1985,13 +1991,19 @@ void OverlayWidget::refreshCaptionGeometry() {
 		: _groupThumbs
 		? _groupThumbsTop
 		: height() - st::mediaviewCaptionMargin.height();
+	const auto closeSpace = _stories
+		? 0
+		: (kCaptionCloseSize + kCaptionCloseSkip);
 	const auto captionWidth = _stories
 		? storiesCaptionWidth
-		: std::min(
-			(_captionAvailableWidth
-				- st::mediaviewCaptionPadding.left()
-				- st::mediaviewCaptionPadding.right()),
-			_caption.maxWidth());
+		: std::max(
+			st::msgMinWidth,
+			std::min(
+				(_captionAvailableWidth
+					- st::mediaviewCaptionPadding.left()
+					- st::mediaviewCaptionPadding.right()
+					- closeSpace),
+				_caption.maxWidth()));
 	const auto lineHeight = st::mediaviewCaptionStyle.font->height;
 	const auto wantedHeight = _caption.countHeight(captionWidth);
 	const auto maxHeight = !_stories
@@ -2022,6 +2034,27 @@ void OverlayWidget::refreshCaptionGeometry() {
 			- st::mediaviewCaptionPadding.bottom()),
 		captionWidth,
 		captionHeight);
+	if (!_stories && !_captionRect.isEmpty()) {
+		const auto bubble = captionGeometry();
+		_captionCloseRect = QRect(
+			bubble.x() + bubble.width()
+				- st::mediaviewCaptionPadding.right()
+				- kCaptionCloseSize,
+			bubble.y() + (bubble.height() - kCaptionCloseSize) / 2,
+			kCaptionCloseSize,
+			kCaptionCloseSize);
+	}
+}
+
+void OverlayWidget::hideCaption() {
+	if (_stories || _captionHidden) {
+		return;
+	}
+	const auto was = captionGeometry().united(_captionCloseRect);
+	_captionHidden = true;
+	refreshCaptionGeometry();
+	update(was.united(captionGeometry()));
+	activateControls();
 }
 
 void OverlayWidget::refreshSponsoredButtonGeometry() {
@@ -4114,6 +4147,16 @@ void OverlayWidget::refreshFromLabel() {
 }
 
 void OverlayWidget::refreshCaption() {
+	// WHY: a closed caption stays closed only while the same media is
+	// shown; navigating away and back displays it again.
+	const auto media = _photo
+		? static_cast<const void*>(_photo)
+		: static_cast<const void*>(_document);
+	if (_captionHiddenItem != _message || _captionHiddenMedia != media) {
+		_captionHiddenItem = _message;
+		_captionHiddenMedia = media;
+		_captionHidden = false;
+	}
 	_caption = Ui::Text::String();
 	auto caption = [&] {
 		if (_stories) {
@@ -6445,7 +6488,9 @@ void OverlayWidget::paint(not_null<Renderer*> renderer) {
 		if (!_stories) {
 			renderer->paintFooter(footerGeometry(), opacity);
 		}
-		if (!(_stories ? _stories->skipCaption() : _caption.isEmpty())) {
+		if (!(_stories
+			? _stories->skipCaption()
+			: (_caption.isEmpty() || _captionHidden))) {
 			renderer->paintCaption(captionGeometry(), opacity);
 		}
 		if (_groupThumbs) {
@@ -7241,6 +7286,28 @@ void OverlayWidget::paintCaptionContent(
 				tr::lng_stories_show_more(tr::now));
 		}
 	}
+	if (!_stories
+		&& _captionCloseRect.isValid()
+		&& _captionCloseRect.intersects(clip)) {
+		const auto hover = overLevel(Over::CaptionClose);
+		const auto pen = p.pen();
+		const auto oldOpacity = p.opacity();
+		p.setPen(QPen(st::mediaviewCaptionFg, kCaptionCloseStroke));
+		p.setOpacity(oldOpacity * (0.55 + 0.45 * hover));
+		const auto &r = _captionCloseRect;
+		p.drawLine(
+			r.left() + kCaptionCloseInset,
+			r.top() + kCaptionCloseInset,
+			r.right() - kCaptionCloseInset,
+			r.bottom() - kCaptionCloseInset);
+		p.drawLine(
+			r.left() + kCaptionCloseInset,
+			r.bottom() - kCaptionCloseInset,
+			r.right() - kCaptionCloseInset,
+			r.top() + kCaptionCloseInset);
+		p.setOpacity(oldOpacity);
+		p.setPen(pen);
+	}
 }
 
 QRect OverlayWidget::captionGeometry() const {
@@ -7994,6 +8061,7 @@ void OverlayWidget::handleMousePress(
 				|| _over == Over::Recognize
 				|| _over == Over::Icon
 				|| _over == Over::More
+				|| _over == Over::CaptionClose
 				|| _over == Over::Video) {
 				_down = _over;
 				if (_over == Over::Video && _stories) {
@@ -8249,6 +8317,7 @@ void OverlayWidget::updateOverRect(Over state) {
 	case Over::Header: update(_headerNav); break;
 	case Over::More: update(_moreNavOver); break;
 	case Over::Recognize: update(_recognizeNavOver); break;
+	case Over::CaptionClose: update(_captionCloseRect); break;
 	}
 }
 
@@ -8395,6 +8464,8 @@ void OverlayWidget::updateOver(QPoint pos) {
 		updateOverState(Over::Draw);
 	} else if (_recognizeVisible && _recognizeNav.contains(pos)) {
 		updateOverState(Over::Recognize);
+	} else if (!_stories && _captionCloseRect.contains(pos)) {
+		updateOverState(Over::CaptionClose);
 	} else if (contentShown() && finalContentRect().contains(pos)) {
 		if (_stories) {
 			updateOverState(Over::Video);
@@ -8526,6 +8597,8 @@ void OverlayWidget::handleMouseRelease(
 		draw();
 	} else if (_over == Over::Recognize && _down == Over::Recognize) {
 		recognize();
+	} else if (_over == Over::CaptionClose && _down == Over::CaptionClose) {
+		hideCaption();
 	} else if (_down == Over::Video) {
 		if (_stories) {
 			_stories->contentPressed(false);

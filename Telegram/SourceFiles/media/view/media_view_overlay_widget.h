@@ -172,6 +172,7 @@ private:
 		Icon,
 		Video,
 		Caption,
+		CaptionClose,
 	};
 	struct Entity {
 		std::variant<
@@ -465,6 +466,7 @@ private:
 
 	void refreshClipControllerGeometry();
 	void refreshCaptionGeometry();
+	void hideCaption();
 
 	bool initStreaming(
 		const StartStreaming &startStreaming = StartStreaming());
@@ -707,6 +709,10 @@ private:
 	ClickHandlerPtr _captionCopyLink;
 	int _captionShowMoreWidth = 0;
 	int _captionSkipBlockWidth = 0;
+	QRect _captionCloseRect;
+	bool _captionHidden = false;
+	HistoryItem *_captionHiddenItem = nullptr;
+	const void *_captionHiddenMedia = nullptr;
 
 	int _topNotchSize = 0;
 	int _width = 0;
