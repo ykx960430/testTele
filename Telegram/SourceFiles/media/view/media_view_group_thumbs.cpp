@@ -349,29 +349,8 @@ void GroupThumbs::Thumb::validateImage() {
 	}
 
 	const auto pixSize = wantedPixSize();
-	if (pixSize.width() > st::mediaviewGroupWidthMax) {
-		const auto originalWidth = _image->width();
-		const auto originalHeight = _image->height();
-		const auto takeWidth = originalWidth * st::mediaviewGroupWidthMax
-			/ pixSize.width();
-		auto original = _image->original();
-		original.setDevicePixelRatio(style::DevicePixelRatio());
-		_full = Ui::PixmapFromImage(original.copy(
-			(originalWidth - takeWidth) / 2,
-			0,
-			takeWidth,
-			originalHeight
-		).scaled(
-			st::mediaviewGroupWidthMax * style::DevicePixelRatio(),
-			pixSize.height() * style::DevicePixelRatio(),
-			Qt::IgnoreAspectRatio,
-			Qt::SmoothTransformation));
-	} else {
-		_full = _image->pixNoCache(pixSize * style::DevicePixelRatio());
-	}
-	_fullWidth = std::min(
-		wantedPixSize().width(),
-		st::mediaviewGroupWidthMax);
+	_full = _image->pixNoCache(pixSize * style::DevicePixelRatio());
+	_fullWidth = pixSize.width();
 }
 
 int GroupThumbs::Thumb::leftToUpdate() const {
@@ -430,7 +409,7 @@ void GroupThumbs::Thumb::animateTo(int left, int width) {
 }
 
 void GroupThumbs::Thumb::animateToLeft(not_null<Thumb*> next) {
-	const auto width = st::mediaviewGroupWidth;
+	const auto width = _fullWidth;
 	if (_state == State::Alive) {
 		// New item animation, start exactly from the next, move only.
 		_left = anim::value(next->currentLeft() - width);
@@ -447,7 +426,7 @@ void GroupThumbs::Thumb::animateToLeft(not_null<Thumb*> next) {
 }
 
 void GroupThumbs::Thumb::animateToRight(not_null<Thumb*> prev) {
-	const auto width = st::mediaviewGroupWidth;
+	const auto width = _fullWidth;
 	if (_state == State::Alive) {
 		// New item animation, start exactly from the next, move only.
 		_left = anim::value(prev->currentLeft() + prev->currentWidth());
