@@ -254,6 +254,8 @@ public:
 
 	[[nodiscard]] int leftToUpdate() const;
 	[[nodiscard]] int rightToUpdate() const;
+	[[nodiscard]] int finalLeft() const;
+	[[nodiscard]] int finalWidth() const;
 
 	void animateToLeft(not_null<Thumb*> next);
 	void animateToRight(not_null<Thumb*> prev);
@@ -271,8 +273,6 @@ private:
 	void validateImage();
 	int currentLeft() const;
 	int currentWidth() const;
-	int finalLeft() const;
-	int finalWidth() const;
 	void animateTo(int left, int width);
 
 	ClickHandlerPtr _link;
@@ -498,6 +498,11 @@ void GroupThumbs::Thumb::paint(
 			_full.height());
 		const auto to = QRect(left, y, width, st::mediaviewGroupHeight);
 		p.drawPixmap(to, _full, from);
+	}
+	if (_state == State::Current) {
+		p.setPen(QPen(st::mediaviewControlFg, style::DevicePixelRatio()));
+		p.setBrush(Qt::NoBrush);
+		p.drawRect(QRectF(left, y, width, st::mediaviewGroupHeight));
 	}
 	p.setOpacity(opacity);
 }
@@ -959,7 +964,7 @@ void GroupThumbs::paint(QPainter &p, int x, int y, int outerWidth) {
 	const auto progress = _waitingForAnimationStart
 		? 0.
 		: _animation.value(1.);
-	x += (_width / 2);
+	x += leftShift();
 	y += st::mediaviewGroupPadding.top();
 	auto initedCurrentIndex = int(_items.size());
 	for (auto i = _cache.begin(); i != _cache.end();) {
@@ -984,8 +989,12 @@ void GroupThumbs::paint(QPainter &p, int x, int y, int outerWidth) {
 	}
 }
 
+int GroupThumbs::leftShift() const {
+	return _items.empty() ? 0 : -_items.front()->finalLeft();
+}
+
 ClickHandlerPtr GroupThumbs::getState(QPoint point) const {
-	point -= QPoint((_width / 2), st::mediaviewGroupPadding.top());
+	point -= QPoint(leftShift(), st::mediaviewGroupPadding.top());
 	for (const auto &cacheItem : _cache) {
 		const auto &thumb = cacheItem.second;
 		if (auto link = thumb->getState(point)) {

@@ -92,6 +92,9 @@ public:
 	void paint(QPainter &p, int x, int y, int outerWidth);
 	ClickHandlerPtr getState(QPoint point) const;
 
+	// Shift that places the leftmost alive thumb at the local left edge.
+	[[nodiscard]] int leftShift() const;
+
 	rpl::producer<QRect> updateRequests() const {
 		return _updateRequests.events();
 	}

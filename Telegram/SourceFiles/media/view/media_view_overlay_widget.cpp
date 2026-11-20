@@ -213,6 +213,7 @@ constexpr auto kPinchZoomStep = 0.25;
 constexpr auto kOverlayLoaderPriority = 2;
 constexpr auto kSeekTimeMs = 5 * crl::time(1000);
 constexpr auto kSeekTimeMsLong = 10 * crl::time(1000);
+constexpr auto kVolumeStep = 0.1;
 constexpr auto kFrameStepFallbackFps = 30.;
 constexpr auto kFrameStepThrottleMs = crl::time(150);
 constexpr auto kDropdownShowDelay = 1 * crl::time(1000);
@@ -4337,7 +4338,7 @@ void OverlayWidget::initGroupThumbs() {
 
 	_groupThumbs->updateRequests(
 	) | rpl::on_next([this](QRect rect) {
-		const auto shift = (width() / 2);
+		const auto shift = _groupThumbsLeft + _groupThumbs->leftShift();
 		_groupThumbsRect = QRect(
 			shift + rect.x(),
 			_groupThumbsTop,
@@ -5623,6 +5624,21 @@ float64 OverlayWidget::playbackControlsCurrentVolume() {
 void OverlayWidget::playbackControlsVolumeToggled() {
 	const auto volume = Core::App().settings().videoVolume();
 	playbackControlsVolumeChanged(volume ? 0. : _lastPositiveVolume);
+	activateControls();
+}
+
+void OverlayWidget::playbackControlsVolumeStep(int direction) {
+	if (!direction) {
+		return;
+	}
+	const auto volume = Core::App().settings().videoVolume();
+	const auto changed = std::clamp(
+		volume + (direction > 0 ? kVolumeStep : -kVolumeStep),
+		0.,
+		1.);
+	if (changed != volume) {
+		playbackControlsVolumeChanged(changed);
+	}
 	activateControls();
 }
 
@@ -7343,6 +7359,25 @@ void OverlayWidget::handleKeyPress(not_null<QKeyEvent*> e) {
 			} else if (key == Qt::Key_Right) {
 				activateControls();
 				seekRelativeTime(kSeekTimeMs);
+			} else if (key == Qt::Key_Up || key == Qt::Key_Down) {
+				playbackControlsVolumeStep(key == Qt::Key_Up ? 1 : -1);
+			}
+			return;
+		} else if (!ctrl
+			&& !modifiers.testFlag(Qt::AltModifier)
+			&& (key == Qt::Key_Left
+				|| key == Qt::Key_Right
+				|| key == Qt::Key_Up
+				|| key == Qt::Key_Down)) {
+			// While the video is not in full screen the arrows control
+			// the playback instead of switching to the next media.
+			activateControls();
+			if (key == Qt::Key_Left) {
+				seekRelativeTime(-kSeekTimeMs);
+			} else if (key == Qt::Key_Right) {
+				seekRelativeTime(kSeekTimeMs);
+			} else {
+				playbackControlsVolumeStep(key == Qt::Key_Up ? 1 : -1);
 			}
 			return;
 		}
@@ -7925,6 +7960,11 @@ void OverlayWidget::preloadData(int delta) {
 void OverlayWidget::handleMousePress(
 		QPoint position,
 		Qt::MouseButton button) {
+	if (button == Qt::BackButton) {
+		// The mouse back button closes the viewer just like Escape.
+		close();
+		return;
+	}
 	updateOver(position);
 	if (_menu || !_receiveMouse) {
 		return;

@@ -271,6 +271,7 @@ private:
 
 	void playbackPauseResume();
 	void playbackToggleFullScreen();
+	void playbackControlsVolumeStep(int direction);
 	void playbackPauseOnCall();
 	void playbackResumeOnCall();
 	void playbackPauseMusic();
