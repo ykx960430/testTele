@@ -338,3 +338,24 @@ error C2027: use of undefined type 'Data::Session'
 **教训**：`History`、`Data::Session` 这种被广泛前向声明的类型，会出现"声明能过、
 使用编译不过"。离线改代码时，凡是新增了对另一个模块类型的**方法调用**，先 grep
 该类型的完整定义在哪个头，再补 include，别等 CI。
+
+## 2026-11 第 91 次 CI 编译失败（const QString 上调 replace）
+
+**报错**：
+```
+clipboard_rules.cpp(275): error C2663: 'QString::replace': no overloaded
+function has valid conversion for 'this' pointer
+note: cannot convert 'this' pointer from 'const QString' to 'QString &'
+```
+
+**根因**：`CollapseWhitespace(const QString &text)` 里直接 `text.replace(...)`，
+而 `QString::replace` 是非 const 成员函数。
+
+**修法**：先拷贝到局部变量再改（提交 `6481664`）：
+```cpp
+auto result = text;
+return result.replace(QRegularExpression(uR"(\s+)"_q), u" "_q).trimmed();
+```
+
+**教训**：对 `const QString&` 参数做任何修改操作（`replace` / `append` / 写
+`operator[]`）都要先拷贝；MSVC 只报 C2663，不会提示"改成值传递"。

@@ -9,7 +9,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "api/api_suggest_post.h"
 #include "api/api_transcribes.h"
-#include "base/debug_log.h"
 #include "base/options.h"
 #include "base/qt/qt_key_modifiers.h"
 #include "base/unixtime.h"
@@ -86,6 +85,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_download_manager.h"
 #include "styles/palette.h"
 #include "styles/style_ayu_icons.h"
+#include "ui/toast/toast.h"
 
 
 namespace HistoryView {
@@ -370,7 +370,6 @@ public:
 	}
 
 	void onClick(ClickContext context) const override {
-		DEBUG_LOG(("[COPY] onClick button %1").arg(int(context.button)));
 		if (context.button != Qt::LeftButton) {
 			return;
 		}
@@ -4772,6 +4771,7 @@ bool Message::getStateViaBotIdInfo(
 
 void Message::copyTextToClipboard() const {
 	Ayu::ClipboardRules::CopyItemTextToClipboard(data());
+	Ui::Toast::Show(tr::lng_text_copied(tr::now));
 }
 
 ClickHandlerPtr Message::textCopyHandler() const {
@@ -4788,7 +4788,6 @@ bool Message::getStateText(
 		not_null<TextState*> outResult,
 		StateRequest request) const {
 	if (!hasVisibleText()) {
-		DEBUG_LOG(("[COPY] getStateText: no visible text"));
 		return false;
 	}
 	const auto item = this->textItem();
@@ -4985,7 +4984,6 @@ bool Message::getStateText(
 		} else if (!outResult->link) {
 			// WHY: a click on the body should copy it, like the caption in
 			// the media viewer, but a real link keeps its own action.
-			DEBUG_LOG(("[COPY] getStateText: attached copy handler"));
 			outResult->link = textCopyHandler();
 			outResult->cursor = CursorState::None;
 		}

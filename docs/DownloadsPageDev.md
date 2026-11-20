@@ -2131,16 +2131,22 @@ D:\Work\AyuGramDesktop\Telegram\SourceFiles\info\downloads\info_downloads_provid
 - 第七轮修复（F7-1，run 90 = `715f5f4` 出包，四角已全绿）：已下载气泡四角露出
   msgBg → `message_bubble.cpp` 新增 `SolidBgCorners()`，`solidBg` 非空时改用
   按颜色缓存的圆角贴图。
-- 第八轮修复（F7-2 / F7-3，待出包）：
+- 第八轮修复（F7-2 / F7-3，run 91 编译失败 → run 93 = `6481664` 修复出包）：
   - 复制去空白太激进 → `CollapseWhitespace()` 改为「连续空白压 1 个 + trim」；
-  - 媒体预览「更多」按钮误触 → `_dropdownShowTimer.callOnce(1000)`。
+  - 媒体预览「更多」按钮误触 → `_dropdownShowTimer.callOnce(kDropdownShowDelay)`（1 秒）；
+  - run 91 失败根因：`CollapseWhitespace(const QString&)` 直接调非 const 的
+    `QString::replace` → C2663，改为先拷贝到局部变量（`6481664`）。
+- 第八轮真机复测（run 93 包，2026-11-20）：单击正文复制**实际已生效**——日志中三次
+  点击均 `finish: activated 1` + `onClick button 1`，剪贴板确认有内容；此前「不能复制」
+  是因为 run 90 无日志且未验证剪贴板。现已补 `Ui::Toast::Show(tr::lng_text_copied)`
+  提示，并移除全部 `[COPY]` 临时日志。
 - include 链条已固化到 `.ai-memory/ci-windows-build.md`（`History` /
   `Data::Session` / `DownloadManager` / `Groups` 各自该补哪个头）。
 
 未做：Phase 2-C.5 右键菜单；Phase 3 集成测试。
 
 本轮任务：**先推 CI 出包（`git push github dev`），真机复测**：
-1. 单击消息正文的文字能复制（run 89 起才有，悬停光标应为手型），拖选仍可用；
+1. 单击消息正文弹「Text copied to clipboard.」提示，拖选仍可用；
 2. 复制结果里多个词之间是 1 个空格，首尾无空白；
 3. 媒体预览右下「更多」按钮要停留约 1 秒才弹菜单，划过不再弹。
 
