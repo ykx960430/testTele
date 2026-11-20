@@ -27,11 +27,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/crash_reports.h"
 #include "styles/style_media_view.h"
 
+#include <QConicalGradient>
+
 namespace Media {
 namespace View {
 namespace {
 
 constexpr auto kThumbDuration = crl::time(150);
+constexpr auto kShimmerDuration = crl::time(2400);
+constexpr auto kShimmerTick = crl::time(30);
 
 int Round(float64 value) {
 	return int(base::SafeRound(value));
@@ -500,9 +504,24 @@ void GroupThumbs::Thumb::paint(
 		p.drawPixmap(to, _full, from);
 	}
 	if (_state == State::Current) {
-		p.setPen(QPen(st::mediaviewControlFg, style::DevicePixelRatio()));
+		const auto rect = QRectF(left, y, width, st::mediaviewGroupHeight);
+		const auto radius = std::min(width, st::mediaviewGroupHeight) * 0.12;
+		const auto base = st::mediaviewControlFg->c;
+		auto dim = QColor(base);
+		dim.setAlphaF(0.25);
+		const auto angle = 360.
+			* (crl::now() % kShimmerDuration)
+			/ kShimmerDuration;
+		auto gradient = QConicalGradient(rect.center(), angle);
+		gradient.setColorAt(0., base);
+		gradient.setColorAt(0.12, dim);
+		gradient.setColorAt(0.88, dim);
+		gradient.setColorAt(1., base);
+		auto pen = QPen(QBrush(gradient), 2. * style::DevicePixelRatio());
+		pen.setJoinStyle(Qt::RoundJoin);
+		p.setPen(pen);
 		p.setBrush(Qt::NoBrush);
-		p.drawRect(QRectF(left, y, width, st::mediaviewGroupHeight));
+		p.drawRoundedRect(rect, radius, radius);
 	}
 	p.setOpacity(opacity);
 }
@@ -960,7 +979,32 @@ void GroupThumbs::update() {
 	_updateRequests.fire_copy(_updatedRect);
 }
 
+void GroupThumbs::updateShimmer() {
+	if (_items.empty()) {
+		if (_shimmerActive) {
+			_shimmerActive = false;
+			_shimmer.stop();
+		}
+		return;
+	} else if (_shimmerActive || anim::Disabled()) {
+		return;
+	}
+	_shimmerActive = true;
+	_shimmerLast = 0;
+	_shimmer.init([=](crl::time now) {
+		if (now - _shimmerLast < kShimmerTick) {
+			return true;
+		}
+		_shimmerLast = now;
+		countUpdatedRect();
+		update();
+		return true;
+	});
+	_shimmer.start();
+}
+
 void GroupThumbs::paint(QPainter &p, int x, int y, int outerWidth) {
+	updateShimmer();
 	const auto progress = _waitingForAnimationStart
 		? 0.
 		: _animation.value(1.);

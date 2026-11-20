@@ -152,6 +152,7 @@ private:
 	std::unique_ptr<Thumb> createThumb(Key key, std::nullptr_t);
 
 	void update();
+	void updateShimmer();
 	void countUpdatedRect();
 	void animateAliveItems(int current);
 	void fillDyingItems(const std::vector<not_null<Thumb*>> &old);
@@ -164,6 +165,9 @@ private:
 	Context _context;
 	bool _waitingForAnimationStart = true;
 	Ui::Animations::Simple _animation;
+	Ui::Animations::Basic _shimmer;
+	bool _shimmerActive = false;
+	crl::time _shimmerLast = 0;
 	std::vector<not_null<Thumb*>> _items;
 	std::vector<not_null<Thumb*>> _dying;
 	base::flat_map<Key, std::unique_ptr<Thumb>> _cache;
