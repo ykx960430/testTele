@@ -8392,8 +8392,6 @@ void OverlayWidget::updateOver(QPoint pos) {
 		auto textState = _saveMsgText.getState(pos - _saveMsg.topLeft() - QPoint(st::mediaviewSaveMsgPadding.left(), st::mediaviewSaveMsgPadding.top()), _saveMsg.width() - st::mediaviewSaveMsgPadding.left() - st::mediaviewSaveMsgPadding.right());
 		lnk = textState.link;
 		lnkhost = this;
-	} else if (!_stories && _captionCloseRect.contains(pos)) {
-		updateOverState(Over::CaptionClose);
 	} else if (_captionRect.contains(pos) && !_fullScreenVideo) {
 		auto request = Ui::Text::StateRequestElided();
 		const auto lineHeight = st::mediaviewCaptionStyle.font->height;
@@ -8445,6 +8443,8 @@ void OverlayWidget::updateOver(QPoint pos) {
 	using SiblingType = Stories::SiblingType;
 	if (_fullScreenVideo) {
 		updateOverState(Over::Video);
+	} else if (!_stories && _captionCloseRect.contains(pos)) {
+		updateOverState(Over::CaptionClose);
 	} else if (_leftNavVisible
 		&& _leftNav.contains(pos)
 		&& !recognitionTakesMouse(pos)) {
