@@ -2027,18 +2027,23 @@ void OverlayWidget::refreshCaptionGeometry() {
 			- st::mediaviewCaptionPadding.bottom();
 		_caption.updateSkipBlock(_captionSkipBlockWidth, skiph);
 	}
+	const auto padding = st::mediaviewCaptionPadding;
+	const auto bubbleWidth = captionWidth
+		+ padding.left()
+		+ padding.right()
+		+ closeSpace;
 	_captionRect = QRect(
-		(width() - captionWidth) / 2,
+		(width() - bubbleWidth) / 2 + padding.left(),
 		(captionBottom
 			- captionHeight
-			- st::mediaviewCaptionPadding.bottom()),
+			- padding.bottom()),
 		captionWidth,
 		captionHeight);
 	if (!_stories && !_captionRect.isEmpty()) {
 		const auto bubble = captionGeometry();
 		_captionCloseRect = QRect(
 			bubble.x() + bubble.width()
-				- st::mediaviewCaptionPadding.right()
+				- kCaptionCloseSkip
 				- kCaptionCloseSize,
 			bubble.y() + (bubble.height() - kCaptionCloseSize) / 2,
 			kCaptionCloseSize,
@@ -7232,8 +7237,13 @@ void OverlayWidget::paintCaptionContent(
 		QRect clip,
 		float64 opacity) {
 	const auto full = outer.marginsRemoved(st::mediaviewCaptionPadding);
-	const auto inner = full.marginsRemoved(
-		_stories ? _stories->repostCaptionPadding() : QMargins());
+	const auto inner = _stories
+		? full.marginsRemoved(_stories->repostCaptionPadding())
+		: full.marginsRemoved(QMargins(
+			0,
+			0,
+			kCaptionCloseSize + kCaptionCloseSkip,
+			0));
 	if (_stories) {
 		p.setOpacity(1.);
 		if (_stories->repost()) {
@@ -7286,35 +7296,45 @@ void OverlayWidget::paintCaptionContent(
 				tr::lng_stories_show_more(tr::now));
 		}
 	}
-	if (!_stories
-		&& _captionCloseRect.isValid()
-		&& _captionCloseRect.intersects(clip)) {
-		const auto hover = overLevel(Over::CaptionClose);
-		const auto pen = p.pen();
-		const auto oldOpacity = p.opacity();
-		p.setPen(QPen(st::mediaviewCaptionFg, kCaptionCloseStroke));
-		p.setOpacity(oldOpacity * (0.55 + 0.45 * hover));
-		const auto &r = _captionCloseRect;
-		p.drawLine(
-			r.left() + kCaptionCloseInset,
-			r.top() + kCaptionCloseInset,
-			r.right() - kCaptionCloseInset,
-			r.bottom() - kCaptionCloseInset);
-		p.drawLine(
-			r.left() + kCaptionCloseInset,
-			r.bottom() - kCaptionCloseInset,
-			r.right() - kCaptionCloseInset,
-			r.top() + kCaptionCloseInset);
-		p.setOpacity(oldOpacity);
-		p.setPen(pen);
+	if (!_stories && _captionCloseRect.isValid()) {
+		const auto r = QRect(
+			outer.x() + outer.width()
+				- kCaptionCloseSkip
+				- kCaptionCloseSize,
+			outer.y() + (outer.height() - kCaptionCloseSize) / 2,
+			kCaptionCloseSize,
+			kCaptionCloseSize);
+		if (r.intersects(clip)) {
+			const auto hover = overLevel(Over::CaptionClose);
+			const auto pen = p.pen();
+			const auto oldOpacity = p.opacity();
+			p.setPen(QPen(st::mediaviewCaptionFg, kCaptionCloseStroke));
+			p.setOpacity(oldOpacity * (0.55 + 0.45 * hover));
+			p.drawLine(
+				r.left() + kCaptionCloseInset,
+				r.top() + kCaptionCloseInset,
+				r.right() - kCaptionCloseInset,
+				r.bottom() - kCaptionCloseInset);
+			p.drawLine(
+				r.left() + kCaptionCloseInset,
+				r.bottom() - kCaptionCloseInset,
+				r.right() - kCaptionCloseInset,
+				r.top() + kCaptionCloseInset);
+			p.setOpacity(oldOpacity);
+			p.setPen(pen);
+		}
 	}
 }
 
 QRect OverlayWidget::captionGeometry() const {
-	return _captionRect.marginsAdded(
-		st::mediaviewCaptionPadding
-	).marginsAdded(
-		_stories ? _stories->repostCaptionPadding() : QMargins());
+	const auto bubble = _captionRect.marginsAdded(st::mediaviewCaptionPadding);
+	return _stories
+		? bubble.marginsAdded(_stories->repostCaptionPadding())
+		: bubble.marginsAdded(QMargins(
+			0,
+			0,
+			kCaptionCloseSize + kCaptionCloseSkip,
+			0));
 }
 
 void OverlayWidget::paintGroupThumbsContent(
@@ -8372,6 +8392,8 @@ void OverlayWidget::updateOver(QPoint pos) {
 		auto textState = _saveMsgText.getState(pos - _saveMsg.topLeft() - QPoint(st::mediaviewSaveMsgPadding.left(), st::mediaviewSaveMsgPadding.top()), _saveMsg.width() - st::mediaviewSaveMsgPadding.left() - st::mediaviewSaveMsgPadding.right());
 		lnk = textState.link;
 		lnkhost = this;
+	} else if (!_stories && _captionCloseRect.contains(pos)) {
+		updateOverState(Over::CaptionClose);
 	} else if (_captionRect.contains(pos) && !_fullScreenVideo) {
 		auto request = Ui::Text::StateRequestElided();
 		const auto lineHeight = st::mediaviewCaptionStyle.font->height;
@@ -8464,8 +8486,6 @@ void OverlayWidget::updateOver(QPoint pos) {
 		updateOverState(Over::Draw);
 	} else if (_recognizeVisible && _recognizeNav.contains(pos)) {
 		updateOverState(Over::Recognize);
-	} else if (!_stories && _captionCloseRect.contains(pos)) {
-		updateOverState(Over::CaptionClose);
 	} else if (contentShown() && finalContentRect().contains(pos)) {
 		if (_stories) {
 			updateOverState(Over::Video);
